@@ -1,0 +1,14 @@
+# Perishable Demand Forecasting & Zero-Waste Inventory Engine - Python dependencies.
+
+# --- core data stack ---
+numpy==2.3.2
+pandas==2.3.1
+pyarrow==21.0.0        # >=21.0.0 REQUIRED by datasets 4.8.5 - do not downgrade
+
+# --- baselines (src/baselines.py) ---
+xgboost==3.3.0         # quantile baseline
+statsmodels==0.14.5    # SARIMA baseline
+
+# --- data source + notebook ---
+datasets==4.8.5        # Hugging Face FreshRetailNet-50K loader (src/utils/data_io.py)
+ipykernel==7.1.0       # kernel for notebooks/

@@ -1,0 +1,15 @@
+# --- python ---
+__pycache__/
+*.pyc
+.venv/
+
+# --- notebooks ---
+# Outputs are stripped on commit by the nbstripout filter (see .gitattributes), so the notebook
+# stays a thin, diffable control surface rather than a 200 MB blob of progress-bar records.
+.ipynb_checkpoints/
+
+# --- data: rebuildable from Hugging Face, given (n_stores, RANDOM_STATE) ---
+# What the subset IS gets recorded in outputs/subset_summary.md, which is committed.
+data/processed/
+
+

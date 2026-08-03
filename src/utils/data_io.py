@@ -1,0 +1,163 @@
+"""Load FreshRetailNet-50K, verify its schema, cut the working subset, and persist it.
+
+`build_subset(n_stores)` rebuilds data/processed/ (driven from the notebook); everything
+downstream reads the persisted parquets via `load(kind)`.
+"""
+import datetime
+
+import numpy as np
+import pandas as pd
+
+from . import config
+
+ID_COLS = ["city_id", "store_id", "management_group_id",
+           "first_category_id", "second_category_id", "third_category_id", "product_id"]
+
+KEEP = ID_COLS + ["dt", "sale_amount", "stock_hour6_22_cnt",
+                  "discount", "holiday_flag", "activity_flag",
+                  "precpt", "avg_temperature", "avg_humidity", "avg_wind_level"]
+
+# train/eval parquet pairs, keyed by the `kind` passed to load()
+_PAIRS = {
+    "daily": (config.DAILY_TRAIN, config.DAILY_EVAL),
+    "hourly": (config.HOURLY_TRAIN, config.HOURLY_EVAL),
+}
+
+
+def validate_schema(train: pd.DataFrame) -> dict:
+    """Assert the schema facts the rest of the pipeline relies on: 24-length hourly vectors,
+    binary stock status, `stock_hour6_22_cnt` derivable from it, and `sale_amount` equal to one
+    of the two hourly aggregations. Raises on any violation."""
+    lo, hi = config.ACTIVE_HOURS
+    hs = np.array(train["hours_sale"].tolist(), dtype=float)
+    hss = np.array(train["hours_stock_status"].tolist(), dtype=float)
+
+    assert hs.shape[1] == 24 and hss.shape[1] == 24, "expected 24-length hourly vectors"
+    assert set(np.unique(hss)).issubset({0, 1}), "stock status must be binary"
+
+    derived_cnt = (hss[:, lo:hi] == 1).sum(axis=1)
+    assert np.array_equal(derived_cnt, train["stock_hour6_22_cnt"].values), \
+        "stock_hour6_22_cnt != #(hours_stock_status[6:22]==1)"
+
+    eq_full = np.allclose(train["sale_amount"].values, hs.sum(axis=1), atol=1e-6)
+    eq_win = np.allclose(train["sale_amount"].values, hs[:, lo:hi].sum(axis=1), atol=1e-6)
+    assert eq_full or eq_win, "sale_amount matches neither hourly aggregation"
+
+    return dict(sale_amount_is_full_24h_sum=eq_full,
+                oos_zero_share=float((hs[hss == 1] == 0).mean()),
+                n_rows=len(train))
+
+
+def to_daily(df: pd.DataFrame) -> pd.DataFrame:
+    """Keep the daily columns, add `is_censored` + `dow`, sort by series and date."""
+    d = df[KEEP].copy()
+    d["dt"] = pd.to_datetime(d["dt"])
+    d["is_censored"] = (d["stock_hour6_22_cnt"] > 0).astype(int)
+    d["dow"] = d["dt"].dt.dayofweek
+    return d.sort_values(["store_id", "product_id", "dt"]).reset_index(drop=True)
+
+
+def _persist_hourly(sub: pd.DataFrame, raw: pd.DataFrame, path) -> None:
+    """Persist the 24h vectors `to_daily` drops, keyed on (store_id, product_id, dt). The
+    hour-level demand recovery needs them."""
+    key = ["store_id", "product_id", "dt"]
+    cols = ["hours_sale", "hours_stock_status"]
+    raw = raw.assign(dt=pd.to_datetime(raw["dt"]))
+    hourly = sub[key].merge(raw[key + cols], on=key, how="left")
+    assert not hourly["hours_sale"].isna().any(), \
+        "hourly join dropped rows - subset keys must match raw exactly"
+    hourly.to_parquet(path, index=False)
+
+
+def build_subset(n_stores: int = 30, random_state: int = config.RANDOM_STATE) -> None:
+    """Rebuild data/processed/ from a seeded random sample of `n_stores` stores, keeping every
+    series (store x product) they carry, across all categories.
+
+    Whole stores, not individual series: nothing is selected on sales volume, so the sample stays
+    representative and no scope restriction has to be declared - and each store keeps a full
+    assortment, which the ordering stage needs to recommend a realistic basket.
+    """
+    from datasets import load_dataset
+    ds = load_dataset(config.HF_DATASET)   # cached locally after the first pull
+    train_raw, eval_raw = ds["train"].to_pandas(), ds["eval"].to_pandas()
+
+    daily_train, daily_eval = to_daily(train_raw), to_daily(eval_raw)
+
+    all_stores = np.sort(daily_train["store_id"].unique())
+    picked = np.random.default_rng(random_state).choice(all_stores, n_stores, replace=False)
+    stores = sorted(int(s) for s in picked)
+
+    sub_train = daily_train[daily_train["store_id"].isin(stores)].copy()
+    sub_eval = daily_eval[daily_eval["store_id"].isin(stores)].copy()
+    categories = sorted(int(c) for c in sub_train["first_category_id"].unique())
+
+    # only the rows we keep: the checks are per-row, and must run on the RAW frames because
+    # `to_daily` drops the hourly vectors they read
+    for label, raw in [("train", train_raw), ("eval", eval_raw)]:
+        print(f"schema facts verified ({label} subset):",
+              validate_schema(raw[raw["store_id"].isin(stores)]))
+
+    config.DATA_DIR.mkdir(parents=True, exist_ok=True)
+    sub_train.to_parquet(config.DAILY_TRAIN, index=False)
+    sub_eval.to_parquet(config.DAILY_EVAL, index=False)
+    (sub_train.groupby(["store_id", "product_id"])["is_censored"].mean()
+     .rename("censoring_rate").to_frame().to_parquet(config.CENSORING_RATE))
+    _persist_hourly(sub_train, train_raw, config.HOURLY_TRAIN)
+    _persist_hourly(sub_eval, eval_raw, config.HOURLY_EVAL)
+
+    summary = _summary_md(
+        selection=(f"Seeded random sample of **{n_stores} of {len(all_stores)} stores** "
+                   f"(seed {random_state}), keeping every series they carry, all categories."),
+        corpus=_describe(daily_train), subset=_describe(sub_train),
+        eval_rows=len(sub_eval), stores=stores, categories=categories)
+    config.OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
+    config.SUBSET_SUMMARY.write_text(summary, encoding="utf-8")
+    print(summary)
+
+
+def _describe(daily: pd.DataFrame) -> dict:
+    """The same shape counts for the corpus and the subset, so the two are comparable."""
+    return dict(
+        n_series=int(daily.groupby(["store_id", "product_id"]).ngroups),
+        n_stores=int(daily["store_id"].nunique()),
+        n_categories=int(daily["first_category_id"].nunique()),
+        n_products=int(daily["product_id"].nunique()),
+        rows=int(len(daily)),
+        censored_day_share=round(float(daily["is_censored"].mean()), 4),
+        mean_daily_sales=round(float(daily["sale_amount"].mean()), 4),
+    )
+
+
+def _summary_md(selection: str, corpus: dict, subset: dict, eval_rows: int,
+                stores: list, categories: list) -> str:
+    """Fill `config.SUBSET_SUMMARY_MD` - corpus and subset side by side, so representativeness is
+    visible rather than asserted."""
+    rows = [("series", f"{corpus['n_series']:,}", f"{subset['n_series']:,}"),
+            ("stores", f"{corpus['n_stores']:,}", f"{subset['n_stores']:,}"),
+            ("categories", corpus["n_categories"], subset["n_categories"]),
+            ("products", f"{corpus['n_products']:,}", f"{subset['n_products']:,}"),
+            ("train rows", f"{corpus['rows']:,}", f"{subset['rows']:,}"),
+            ("units/day", corpus["mean_daily_sales"], subset["mean_daily_sales"]),
+            ("censored days", f"{corpus['censored_day_share']:.1%}",
+             f"{subset['censored_day_share']:.1%}")]
+    return config.SUBSET_SUMMARY_MD.format(
+        built_at=datetime.datetime.now().isoformat(timespec="seconds"),
+        selection=selection,
+        table="\n".join(f"| {name} | {c} | {s} |" for name, c, s in rows),
+        share=f"{subset['n_series'] / corpus['n_series']:.1%}",
+        per_store=subset["n_series"] // subset["n_stores"],
+        eval_rows=f"{eval_rows:,}",
+        categories=", ".join(str(c) for c in categories),
+        stores=", ".join(str(s) for s in stores),
+    )
+
+
+def load(kind: str) -> pd.DataFrame:
+    """Load a train/eval parquet pair ("daily" | "hourly") into one frame with a
+    `split` column ("train"/"eval") and parsed dates."""
+    train_path, eval_path = _PAIRS[kind]
+    train = pd.read_parquet(train_path).assign(split="train")
+    eval_ = pd.read_parquet(eval_path).assign(split="eval")
+    combined = pd.concat([train, eval_], ignore_index=True)
+    combined["dt"] = pd.to_datetime(combined["dt"])
+    return combined

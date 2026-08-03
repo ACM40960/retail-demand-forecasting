@@ -1,0 +1,4 @@
+,WAPE,WPE,MAE,pinball@0.5,pinball(avg),CRPS~,n_series
+seasonal_naive,0.4106,0.0309,0.4358,0.225,,,
+xgboost_quantile,0.3382,-0.018,0.3592,,0.115,0.2162,
+sarima,0.378,0.1705,0.4004,,,,30.0
