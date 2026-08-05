@@ -5,9 +5,16 @@ numpy==2.3.2
 pandas==2.3.1
 pyarrow==21.0.0        # >=21.0.0 REQUIRED by datasets 4.8.5 - do not downgrade
 
+# --- figures (src/utils/plots.py) ---
+matplotlib==3.10.8
+
 # --- baselines (src/baselines.py) ---
 xgboost==3.3.0         # quantile baseline
 statsmodels==0.14.5    # SARIMA baseline
+
+# --- recovery (src/recovery.py) ---
+lightgbm==4.6.0        # Stage-1 hourly demand-rate model
+scikit-learn==1.8.0    # train_test_split
 
 # --- data source + notebook ---
 datasets==4.8.5        # Hugging Face FreshRetailNet-50K loader (src/utils/data_io.py)

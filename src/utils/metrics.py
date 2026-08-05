@@ -28,17 +28,26 @@ def pinball(y: np.ndarray, q: np.ndarray, tau: float) -> float:
     return np.mean(np.maximum(tau * d, (tau - 1) * d))
 
 
-def quantile_scores(df: pd.DataFrame, actual: str = "sale_amount",
-                    q_cols=(("q10", 0.1), ("q50", 0.5), ("q90", 0.9)),
-                    stockout_col: str = "stock_hour6_22_cnt") -> dict:
-    """Full scorecard for a q10/q50/q90 forecast: point WAPE/WPE/MAE from the median, plus mean
-    pinball and a crude 3-quantile CRPS proxy. Shared by the XGBoost baseline and the TFT."""
-    median_col = next(c for c, tau in q_cols if tau == 0.5)
-    scores = per_date_scores(df, actual=actual, pred=median_col)
+Q_COLS = (("q10", 0.1), ("q50", 0.5), ("q90", 0.9))
 
-    nz = df[stockout_col] == 0
+
+def quantile_scores(df: pd.DataFrame, actual: str = "sale_amount") -> dict:
+    """Full scorecard for a q10/q50/q90 forecast: point WAPE/WPE/MAE from q50, plus mean pinball
+    and a crude 3-quantile CRPS proxy. Shared by the XGBoost baseline and the TFT."""
+    scores = per_date_scores(df, actual=actual, pred="q50")
+
+    nz = df["stock_hour6_22_cnt"] == 0
     y = df.loc[nz, actual].values
-    mean_pb = float(np.mean([pinball(y, df.loc[nz, c].values, tau) for c, tau in q_cols]))
+    mean_pb = float(np.mean([pinball(y, df.loc[nz, c].values, tau) for c, tau in Q_COLS]))
     scores["pinball(avg)"] = round(mean_pb, 4)
     scores["CRPS~"] = round(2 * mean_pb / (np.abs(y).mean() + 1e-9), 4)
     return scores
+
+
+def bias_scores(y_true: np.ndarray, y_pred: np.ndarray) -> dict:
+    """WAPE / MAE / signed WPE over flat arrays - used by `recovery.evaluate`, which scores a flat
+    set of held-out days rather than the per-date frame `per_date_scores` needs."""
+    err = y_pred - y_true
+    return dict(wape=float(np.abs(err).sum() / np.abs(y_true).sum()),
+                mae=float(np.abs(err).mean()),
+                wpe=float(err.sum() / y_true.sum()))

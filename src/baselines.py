@@ -71,7 +71,7 @@ def sarima_sampled(sub_train: pd.DataFrame, sub_eval: pd.DataFrame,
     series = list(sub_train.groupby(["store_id", "product_id"]))
     rng = np.random.default_rng(random_state)
     pick = [series[i] for i in rng.choice(len(series), min(n_series, len(series)), replace=False)]
-    rows = []
+    rows, n_failed = [], 0
     for (s, p), tr in pick:
         y = tr.sort_values("dt")["sale_amount"].astype(float).values
         ev_sp = sub_eval[(sub_eval.store_id == s) & (sub_eval.product_id == p)].sort_values("dt")
@@ -81,10 +81,11 @@ def sarima_sampled(sub_train: pd.DataFrame, sub_eval: pd.DataFrame,
             f = SARIMAX(y, order=(1, 0, 1), seasonal_order=(1, 0, 0, 7),
                         enforce_stationarity=False, enforce_invertibility=False
                         ).fit(disp=False).forecast(len(ev_sp))
-        except Exception:
+        except Exception:   # SARIMA genuinely fails to converge on sparse series; count those
             f = np.repeat(y[-7:].mean(), len(ev_sp))
+            n_failed += 1
         rows.append(ev_sp.assign(pred=np.clip(f, 0, None)))
-    return per_date_scores(pd.concat(rows)) | {"n_series": len(pick)}
+    return per_date_scores(pd.concat(rows)) | {"n_series": len(pick), "n_failed": n_failed}
 
 
 def score_baselines(train_df: pd.DataFrame, eval_df: pd.DataFrame,

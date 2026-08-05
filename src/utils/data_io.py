@@ -21,6 +21,7 @@ KEEP = ID_COLS + ["dt", "sale_amount", "stock_hour6_22_cnt",
 _PAIRS = {
     "daily": (config.DAILY_TRAIN, config.DAILY_EVAL),
     "hourly": (config.HOURLY_TRAIN, config.HOURLY_EVAL),
+    "recovered": (config.RECOVERED_TRAIN, config.RECOVERED_EVAL),
 }
 
 
@@ -69,7 +70,7 @@ def _persist_hourly(sub: pd.DataFrame, raw: pd.DataFrame, path) -> None:
     hourly.to_parquet(path, index=False)
 
 
-def build_subset(n_stores: int = 30, random_state: int = config.RANDOM_STATE) -> None:
+def build_subset(n_stores: int = 30, random_state: int = config.SUBSET_SEED) -> None:
     """Rebuild data/processed/ from a seeded random sample of `n_stores` stores, keeping every
     series (store x product) they carry, across all categories.
 
@@ -153,7 +154,7 @@ def _summary_md(selection: str, corpus: dict, subset: dict, eval_rows: int,
 
 
 def load(kind: str) -> pd.DataFrame:
-    """Load a train/eval parquet pair ("daily" | "hourly") into one frame with a
+    """Load a train/eval parquet pair ("daily" | "hourly" | "recovered") into one frame with a
     `split` column ("train"/"eval") and parsed dates."""
     train_path, eval_path = _PAIRS[kind]
     train = pd.read_parquet(train_path).assign(split="train")

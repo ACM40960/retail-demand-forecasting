@@ -10,6 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = ROOT / "data" / "processed"
 OUTPUTS_DIR = ROOT / "outputs"
+MODEL_DIR = OUTPUTS_DIR / "models"   # fitted models that must outlive the kernel that fit them
 
 # ---- data artifacts: the working subset ----
 DAILY_TRAIN = DATA_DIR / "daily_train.parquet"
@@ -18,12 +19,27 @@ HOURLY_TRAIN = DATA_DIR / "hourly_train.parquet"
 HOURLY_EVAL = DATA_DIR / "hourly_eval.parquet"
 CENSORING_RATE = DATA_DIR / "censoring_rate.parquet"
 
+# ---- data artifacts: recovered demand ----
+RECOVERED_TRAIN = DATA_DIR / "daily_train_recovered.parquet"
+RECOVERED_EVAL = DATA_DIR / "daily_eval_recovered.parquet"
+
 # ---- outputs ----
 # The subset itself is rebuildable from (n_stores, RANDOM_STATE), so it is not committed. This
 # summary is: it is the committed record of what the reported numbers describe, and a rebuild
 # rewrites it.
 SUBSET_SUMMARY = OUTPUTS_DIR / "subset_summary.md"
 BASELINE_SCORECARD = OUTPUTS_DIR / "baseline_scorecard.csv"
+
+# recovery: the Stage-1 model and the bias correction that together produced the recovered parquets.
+# Without them `recovered_demand` is an unexplainable column - the correction is a fitted parameter
+# applied to every recovered hour, so it belongs on disk next to its output.
+STAGE1_MODEL = MODEL_DIR / "recovery_stage1_lgbm.txt"   # LightGBM native text format
+RECOVERY_PARAMS = OUTPUTS_DIR / "recovery_params.json"
+RECOVERY_COMPARISON = OUTPUTS_DIR / "recovery_model_comparison.csv"   # the table that picks Stage 1
+BIAS_BUCKET_CSV = OUTPUTS_DIR / "recovery_by_censoring_bucket.csv"
+LEAKAGE_CHECKS = OUTPUTS_DIR / "leakage_checks.json"
+RECOVERY_PLOT = OUTPUTS_DIR / "recovery_bias_and_example.png"
+HOUR_LEVEL_TABLE = OUTPUTS_DIR / "hour_level_appendix.csv"   # why daily totals rank, not hours
 
 # Its wording lives here rather than in data_io, so that module holds only the numbers. Markdown
 # because the file is committed and read on GitHub.
@@ -53,7 +69,8 @@ Store IDs: {stores}
 # The 90-day train file splits here; the shipped eval file is the TEST week and is opened once,
 # at the final evaluation. Declared once, in full, even though the calibration window is not read
 # until the calibration stage - a calendar split across files is a calendar that drifts.
-TRAIN_END = "2024-05-28"   # training: file start .. here
+TRAIN_START = "2024-03-28"   # training: the train file starts here
+TRAIN_END = "2024-05-28"
 VAL_START = "2024-05-29"   # validation: early stopping, model choice, baseline scorecard
 VAL_END = "2024-06-11"
 CAL_START = "2024-06-12"   # calibration: conformal band widths only
@@ -65,4 +82,10 @@ ACTIVE_HOURS = (6, 22)   # the dataset's annotated 06:00-22:00 censoring window
 
 SARIMA_SAMPLE = 30       # series sampled for the SARIMA baseline (it is slow per series)
 
-RANDOM_STATE = 0
+# Which stores `build_subset` draws. FROZEN - changing it redraws the whole dataset and every
+# artifact downstream stops describing the data it was computed on. Kept separate from
+# RANDOM_STATE so a model-seed experiment can never move the subset by accident.
+SUBSET_SEED = 123
+
+# Model fits and train/val splits. Safe to vary: it changes results, never the data.
+RANDOM_STATE = 123
