@@ -1,0 +1,8 @@
+,wape,mae,wpe,fit_seconds
+lightgbm_tweedie,1.0008,0.0511,-0.0157,37.9
+xgboost,1.0079,0.0514,0.0032,70.5
+lightgbm_l2,1.0151,0.0518,0.0031,17.9
+lightgbm_poisson,1.017,0.0519,-0.0001,39.2
+series_hour_mean,1.0394,0.053,0.0024,1.0
+poisson_glm,1.3893,0.0709,0.0014,16.8
+all_zeros,1.0,0.051013125648190355,-1.0,0.0
