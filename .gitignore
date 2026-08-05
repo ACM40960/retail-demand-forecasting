@@ -4,12 +4,24 @@ __pycache__/
 .venv/
 
 # --- notebooks ---
-# Outputs are stripped on commit by the nbstripout filter (see .gitattributes), so the notebook
-# stays a thin, diffable control surface rather than a 200 MB blob of progress-bar records.
+# Notebook OUTPUTS are committed on purpose (see .gitattributes): the notebooks are the report, and
+# GitHub renders their tables and figures inline. Only the checkpoint dirs are ignored.
 .ipynb_checkpoints/
 
-# --- data: rebuildable from Hugging Face, given (n_stores, RANDOM_STATE) ---
-# What the subset IS gets recorded in outputs/subset_summary.md, which is committed.
-data/processed/
+# --- data ---
+# The raw subset is rebuildable from Hugging Face given (n_stores, SUBSET_SEED), so it is not
+# committed; what the subset IS gets recorded in outputs/subset_summary.md, which is.
+#
+# The *recovered* parquets ARE committed (~1.7 MB): they are the output of the recovery stage, like
+# the fitted model and recovery_params.json, and they are the input to forecasting - so the
+# forecasting notebook runs in Colab straight from a clone, without a 25-minute rebuild first.
+# Note the `/*` form: git cannot re-include a file whose parent DIRECTORY is excluded.
+data/processed/*
+!data/processed/*_recovered.parquet
+
+# --- training run artifacts ---
+# Lightning writes a versioned dir per run even with logger=False; the fitted checkpoints go to
+# outputs/models/ instead, which IS committed.
+lightning_logs/
 
 

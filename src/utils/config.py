@@ -41,6 +41,27 @@ LEAKAGE_CHECKS = OUTPUTS_DIR / "leakage_checks.json"
 RECOVERY_PLOT = OUTPUTS_DIR / "recovery_bias_and_example.png"
 HOUR_LEVEL_TABLE = OUTPUTS_DIR / "hour_level_appendix.csv"   # why daily totals rank, not hours
 
+# forecasting: one saved forecast per (period, target), plus the fitted TFT for each target.
+# `tag` is "recovered" or "raw" - the two targets being compared - so both sets of files sit side by
+# side and neither can quietly overwrite the other.
+FORECAST_SCORECARD = OUTPUTS_DIR / "forecast_vs_baselines.csv"
+
+
+def forecast_parquet(period: str, tag: str):
+    """Saved q10/q50/q90 for one period and one target."""
+    return OUTPUTS_DIR / f"forecast_{period}_{tag}.parquet"
+
+
+def tft_checkpoint(tag: str):
+    """The fitted TFT for one target."""
+    return MODEL_DIR / f"tft_best_{tag}.ckpt"
+
+
+def tft_tuning(tag: str):
+    """The hyperparameter search ranking. Rewritten after every config, so an interrupted grid
+    resumes from it rather than restarting."""
+    return OUTPUTS_DIR / f"tft_tuning_{tag}.csv"
+
 # Its wording lives here rather than in data_io, so that module holds only the numbers. Markdown
 # because the file is committed and read on GitHub.
 SUBSET_SUMMARY_MD = """# Working subset

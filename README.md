@@ -72,20 +72,22 @@ numbers stay comparable to the published FreshRetailNet evaluation.
 ```bash
 python -m venv .venv && .venv\Scripts\activate     # Windows
 pip install -r requirements.txt
-nbstripout --install                               # keeps notebook outputs out of git
 ```
 
 ## Running it
 
 ```bash
-jupyter lab notebooks/                      # heavy fits sit behind RUN_* toggles
+jupyter lab notebooks/                      # heavy fits sit behind RUN_* / TUNE toggles
 ```
 
 | notebook | covers | runtime |
 |---|---|---|
 | `01_data_and_recovery.ipynb` | subset + baselines, demand recovery, frozen splits | ~15 min |
-| `02_forecasting.ipynb` | TFT tuning + fit, conformal calibration | hours (GPU advised) |
+| `02_forecasting.ipynb` | TFT search + fit, recovered-vs-raw comparison | hours (GPU advised) |
 | `03_ordering_and_results.ipynb` | order quantities + cost sweep, final scoreboard | ~5 min |
+
+`02_forecasting.ipynb` also runs in Colab straight from a clone — its first cell clones and installs,
+and the recovered-demand parquets are committed so no rebuild is needed.
 
 Each notebook is independent — it reads what it needs from disk and tells you which notebook to
 run if something is missing. Only a cold start needs them in order.
@@ -98,6 +100,3 @@ drift from the data it describes.
 notebook and the dashboard go through identical code. The working subset is rebuilt by
 `data_io.build_subset(n_stores)` and the draw is seeded from `config.RANDOM_STATE`, so the same
 two numbers always reproduce the same data.
-
-The repo is built up one stage at a time — the layout, the dashboard and the results tables land
-as each stage does.
