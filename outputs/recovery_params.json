@@ -1,10 +1,10 @@
 {
   "model": "lightgbm_tweedie",
   "n_test_days": 2500,
-  "bias_correction": 0.8749,
-  "wpe_uncorrected": 0.13,
-  "fit_seconds": 46.2,
-  "wape": 0.2982,
-  "mae": 0.2668,
-  "wpe": -0.0113
+  "bias_correction": 0.9001,
+  "wpe_uncorrected": 0.1316,
+  "fit_seconds": 141.1,
+  "wape": 0.2966,
+  "mae": 0.268,
+  "wpe": 0.0186
 }

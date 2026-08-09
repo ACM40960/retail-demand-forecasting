@@ -44,6 +44,20 @@ def quantile_scores(df: pd.DataFrame, actual: str = "sale_amount") -> dict:
     return scores
 
 
+def scores_by_bucket(df: pd.DataFrame, bucket: pd.Series, actual: str = "sale_amount"):
+    """`quantile_scores` per band of `bucket` (a per-series Series, e.g. `censoring_bucket`), plus
+    a pooled ALL row. The pooled row is the one that hides the effect - keep both."""
+    # set_axis, not to_numpy: keeps the categorical dtype, so bands stay in severity order
+    band = bucket.reindex(pd.MultiIndex.from_frame(df[["store_id", "product_id"]])).set_axis(df.index)
+
+    def row(g):   # n counts the rows that are actually scored, not the rows in the band
+        return {"n_scored": int((g["stock_hour6_22_cnt"] == 0).sum()),
+                **quantile_scores(g, actual=actual)}
+
+    rows = {str(b): row(g) for b, g in df.groupby(band, observed=True)}
+    return pd.DataFrame({**rows, "ALL": row(df)}).T
+
+
 def bias_scores(y_true: np.ndarray, y_pred: np.ndarray) -> dict:
     """WAPE / MAE / signed WPE over flat arrays - used by `recovery.evaluate`, which scores a flat
     set of held-out days rather than the per-date frame `per_date_scores` needs."""

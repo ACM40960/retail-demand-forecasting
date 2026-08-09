@@ -1,8 +1,12 @@
 """Figures shared by the notebooks and the Streamlit app.
 
 Every function RETURNS the figure and only saves when `save_path` is given, so the app renders
-exactly what the notebook shows inline - the app never recomputes anything. The figure is left
-open, so returning it from a notebook cell displays it.
+exactly what the notebook shows inline - the app never recomputes anything.
+
+Each builder CLOSES the figure before returning it. Returning it is what displays it in a notebook;
+leaving it open as well makes the inline backend draw it a second time at the end of the cell, so
+the reader sees the same chart twice. A closed figure still renders from the return value and still
+works with `st.pyplot`.
 """
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -22,6 +26,7 @@ def plot_recovery_overlay(series_df: pd.DataFrame, title_suffix: str = ""):
     ax.set_ylabel("units/day")
     ax.legend(loc="upper right")
     fig.tight_layout()
+    plt.close(fig) 
     return fig
 
 

@@ -19,6 +19,11 @@ Everything public here takes and returns DAILY frames:
     evaluate        train/test one candidate on held-out full-stock days
     compare_models  the same for every candidate - the table that picks Stage 1
     run             fit the chosen model and write `recovered_demand`
+
+`evaluate` can only score full-stock days, so one check covers what it structurally cannot -
+whether the fitted correction survives the calendar:
+
+    correction_by_period   refit the multiplier in each later window - does one number still hold?
 """
 import json
 import time
@@ -209,6 +214,7 @@ def evaluate(daily: pd.DataFrame, make_model=stage1_lgbm, n_days: int = N_TEST_D
 
     truth = test_days.set_index(KEY)["sale_amount"]
     both = pd.concat([recovered.rename("recovered"), truth.rename("true")], axis=1).dropna()
+    # Data Split to estimate bias_correction and to score it, so the reported error is never measured on days the correction was tuned on
     calibration = both.sample(frac=0.5, random_state=random_state)
     test = both.drop(index=calibration.index)
 
@@ -310,12 +316,24 @@ def _save_recovered(recovered: pd.DataFrame) -> None:
 # ------------------------------------------------------------------ diagnostics
 
 def bias_by_censoring(recovered: pd.DataFrame) -> pd.DataFrame:
-    """Recorded vs recovered demand, split by how censored the day was. The uplift must GROW with
-    censoring - a barely-censored day that gains a lot of demand means the model is inventing it."""
+    """Recorded vs recovered demand, split by how censored the day was.
+
+    `uplift_pct` grows down the table, which reads as the model adding demand only where trading
+    hours were missing. `uplift_pct_constant_fill` is the control that stops that being read as
+    evidence: it replaces every stocked-out hour with ONE number - the average in-stock hour, no
+    model, no features - and reproduces the same climb. The pattern is arithmetic (more missing
+    hours, more filled in, on a smaller base), so it cannot tell two fillers apart. What the model
+    has to beat is in `compare_models`; this table shows only WHERE the demand is added.
+    """
     cens = recovered[recovered.is_censored == 1].copy()
     cens["cens_bucket"] = pd.cut(
         cens["censoring_frac"], bins=[0, 0.25, 0.5, 0.75, 1.0], include_lowest=True,
         labels=["low (0-25%)", "med (25-50%)", "high (50-75%)", "severe (75-100%)"])
+
+    hours_open = ACTIVE_HI - ACTIVE_LO
+    flat = (recovered["sale_amount"].sum()
+            / (hours_open - recovered["stock_hour6_22_cnt"]).sum())   # the average in-stock hour
+    cens["constant_fill"] = cens["sale_amount"] + cens["stock_hour6_22_cnt"] * flat
 
     def summarise(d):
         raw, rec = d["sale_amount"].sum(), d["recovered_demand"].sum()
@@ -323,9 +341,43 @@ def bias_by_censoring(recovered: pd.DataFrame) -> pd.DataFrame:
                           "raw_mean": d["sale_amount"].mean(),
                           "recovered_mean": d["recovered_demand"].mean(),
                           "wpe_raw_vs_recovered": (raw - rec) / rec,
-                          "uplift_pct": (rec / raw - 1) * 100})
+                          "uplift_pct": (rec / raw - 1) * 100,
+                          "uplift_pct_constant_fill": (d["constant_fill"].sum() / raw - 1) * 100})
 
     return cens.groupby("cens_bucket", observed=True).apply(summarise, include_groups=False)
+
+
+def correction_by_period(daily: pd.DataFrame, make_model=stage1_lgbm, n_days: int = N_TEST_DAYS,
+                         random_state: int = config.RANDOM_STATE,
+                         save: bool = True) -> pd.DataFrame:
+    """Does the one fitted multiplier still hold weeks later, where `run` actually applies it?
+
+    `bias_correction` is a single number fitted inside the 62-day training window and then applied
+    to every recovered hour out to the test week. This refits it separately in each later window.
+    Stable means the single multiplier is sound and needs no per-period patching; drift means the
+    shipped number is stale and `recovered_demand` is tilted more the further a day sits from
+    training - which matters because that column is what the forecaster is trained on.
+
+    Full-shelf days only and every one of them held out of the fit, so the calendar is the only
+    thing changing between rows. The test week is not read.
+    """
+    clean = daily[(daily.is_censored == 0) & (daily.period != "test")]
+    days = pd.concat([d.sample(n=min(n_days, len(d)), random_state=random_state)
+                      for _, d in clean.groupby("period", observed=True)])
+    recovered = _recover_test_days(hours(daily), days, make_model, random_state)
+
+    scored = days.set_index(KEY).join(recovered.rename("recovered")).dropna(subset=["recovered"])
+    board = scored.groupby("period", observed=True).apply(lambda d: pd.Series({
+        "n_clean_days": len(d),
+        "correction": d["sale_amount"].sum() / d["recovered"].sum()}), include_groups=False)
+    board = board.reindex(["training", "validation", "calibration"])   # calendar order, not A-Z
+    shipped = (load_params() or {}).get("bias_correction", float("nan"))
+    board["shipped_is_off_by_%"] = (shipped / board["correction"] - 1) * 100
+
+    if save:
+        config.OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
+        board.round(4).to_csv(config.CORRECTION_BY_PERIOD)
+    return board.round(4)
 
 
 def population_wpe(recovered: pd.DataFrame) -> dict:

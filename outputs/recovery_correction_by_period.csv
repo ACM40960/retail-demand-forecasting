@@ -1,0 +1,4 @@
+period,n_clean_days,correction,shipped_is_off_by_%
+training,5000.0,0.8919,0.9216
+validation,5000.0,0.8574,4.9791
+calibration,5000.0,0.9234,-2.5213

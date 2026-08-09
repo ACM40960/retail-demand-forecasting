@@ -8,7 +8,7 @@ Scoring uses the dataset's convention: per date, non-stockout rows only, against
 `sale_amount`. On those rows recorded sales ARE demand, so neither version is judged against the
 target it was trained on.
 
-    tuning = tune(daily)                              # score every config on validation
+    tuning = tune(daily, seeds=(1, 2, 3))             # rank configs by mean score over seeds
     forecasts = run(daily, **best_params(tuning))     # train the winner, forecast, save
 """
 import itertools
@@ -41,21 +41,33 @@ KNOWN_REALS = [c for c in FEATURES if c not in CATEGORICAL and not c.startswith(
 # against `recovered_demand`
 CARRY = ["sale_amount", "stock_hour6_22_cnt", "recovered_demand", "is_censored"]
 
-# 48 configs, all of them scored. `target_transform` matters most: the target is zero-inflated, so
-# normalising raw values lets the few big days dominate - the problem Tweedie solved for the
-# recovery model, fixed here by reshaping the target instead of the loss.
+# 24 configs. A 48-config full-factorial search on an earlier subset found NO setting moved
+# validation pinball by more than the seed-to-seed spread - the largest main effect was half the
+# noise floor. That result is why the levels here are chosen rather than widened: each brackets or
+# extends the direction that search pointed at, instead of re-scanning ground already covered.
+#
+#   learning_rate  0.01 was the interior optimum of {0.003, 0.01, 0.03}; this brackets it tightly
+#   dropout        weakest effect measured, but re-searched rather than assumed - see below
+#   hidden_size    32 beat 16, so the direction is up; 64 is newly plausible on a larger subset
+#   encoder_days   14 beat 28, so the direction is down; 7 has never been tested
+#
+# `learning_rate` and `dropout` are re-searched rather than fixed at their old best because that
+# search ran on a store draw sharing only 2 stores with the current one - a near-disjoint sample of
+# the same corpus. Its signal-to-noise CONCLUSION transfers; its specific optima do not.
+#
+# `target_transform` was in the old search and is absent here: `none` beat `log1p`, and `train` has
+# no such parameter, so half that table tested something this code cannot do.
 GRID = {
-    "learning_rate": [0.003, 0.01, 0.03],
-    "hidden_size": [16, 32],
-    "encoder_days": [14, 28],
-    "target_transform": ["none", "log1p"],
+    "learning_rate": [0.005, 0.01, 0.02],
     "dropout": [0.1, 0.2],
+    "hidden_size": [32, 64],
+    "encoder_days": [7, 14],
 }
 
 
 class _EpochLine(pl.Callback):
-    """One line per epoch instead of a live progress bar. The bar redraws on every batch, which in
-    a notebook is an output update per batch - hundreds per epoch, and the single biggest cost of a
+    """One line per epoch instead of a live progress bar. The bar redraws on every batch, which in a
+    notebook is an output update per batch - hundreds per epoch, and the single biggest cost of a
     small model on a GPU. A printed line also survives being scrolled or saved."""
 
     def on_train_epoch_end(self, trainer, module):
@@ -67,9 +79,9 @@ class _EpochLine(pl.Callback):
 
 
 def _quiet_lightning():
-    """Lightning announces GPU/TPU availability and a cloud-logging tip on every single fit; across
-    48 configs that is hundreds of lines burying the scores. Called from `train` because notebooks
-    reset warning filters between cells."""
+    """Lightning announces GPU/TPU availability and a cloud-logging tip on every fit; across a grid
+    that is hundreds of lines burying the scores. Called from `train` because notebooks reset
+    warning filters between cells."""
     warnings.filterwarnings("ignore", message=".*does not have many workers.*")
     for name in ("lightning.pytorch.utilities.rank_zero",
                  "lightning.pytorch.accelerators.cuda", "pytorch_lightning"):
@@ -91,9 +103,9 @@ def _day(frame: pd.DataFrame, date: str) -> int:
     return int((pd.Timestamp(date) - frame["dt"].min()).days)
 
 
-def _dataset(frame: pd.DataFrame, target: str, encoder_days: int, target_transform: str):
-    """Training-period rows only. The transform is applied per series, so each product is
-    normalised on its own scale rather than against the store-wide average."""
+def _dataset(frame: pd.DataFrame, target: str, encoder_days: int):
+    """Training-period rows only. Normalised per series, so a fast and a slow product are scaled on
+    their own history rather than against the store-wide average."""
     return TimeSeriesDataSet(
         frame[frame.time_idx <= _day(frame, config.TRAIN_END)],
         time_idx="time_idx", target=target, group_ids=["store_id", "product_id"],
@@ -101,26 +113,33 @@ def _dataset(frame: pd.DataFrame, target: str, encoder_days: int, target_transfo
         static_categoricals=CATEGORICAL,
         time_varying_known_reals=["time_idx"] + KNOWN_REALS,
         time_varying_unknown_reals=[target],
-        target_normalizer=GroupNormalizer(
-            groups=["store_id", "product_id"],
-            transformation=None if target_transform == "none" else target_transform),
+        target_normalizer=GroupNormalizer(groups=["store_id", "product_id"]),
         add_relative_time_idx=True, add_target_scales=True, allow_missing_timesteps=True,
     )
 
 
 def train(daily: pd.DataFrame, tag: str = "recovered", learning_rate: float = 0.01,
-          hidden_size: int = 32, encoder_days: int = 28, target_transform: str = "log1p",
-          dropout: float = 0.1, max_epochs: int = 30, patience: int = 5,
-          batch_size: int = None, num_workers: int = None, accelerator: str = "auto"):
+          encoder_days: int = 14, hidden_size: int = 32, dropout: float = 0.1,
+          max_epochs: int = 15, patience: int = 5, seed: int = config.RANDOM_STATE,
+          batch_size: int = None, num_workers: int = None, accelerator: str = "auto",
+          save_checkpoint: bool = True):
     """Fit the TFT and return `(model, training_dataset)`.
 
-    Fitted on the training window, early-stopped on validation - so validation decides when to stop
-    and is never trained on. The best epoch is checkpointed and reloaded, so a run that ends does
-    not take the model with it.
+    Fitted on the training window, early-stopped on `val_loss` - so validation decides when to stop
+    and is never trained on. The best epoch is checkpointed and reloaded, so a run that overshoots
+    still returns its best weights rather than its last.
 
-    `batch_size` and `num_workers` default by device: this model is small enough that a GPU spends
-    most of its time waiting for batches, so on GPU it takes big batches and background workers.
-    Workers stay at 0 on Windows, where >0 deadlocks inside notebooks.
+    `max_epochs` is a CEILING, not a target: `patience` usually stops the fit first. It is set well
+    below what the loss curve would tolerate, because of a known mismatch - `val_loss` is computed
+    over all validation rows INCLUDING censored days, while the scorecard scores non-stockout rows
+    only. Training long therefore optimises a target containing censored zeros and over-predicts the
+    clean days it is graded on. Raising the ceiling made every metric worse on an earlier subset.
+    The proper fix is a validation loss restricted to non-stockout rows, so the stopping rule and the
+    scorecard agree; until that exists, the ceiling is the guard.
+
+    `batch_size` and `num_workers` default by device - this model is small enough that a GPU spends
+    most of its time waiting for batches. Workers stay at 0 on Windows, where >0 deadlocks in
+    notebooks. `seed` varies the fit while holding data and settings constant.
     """
     _quiet_lightning()
     on_gpu = torch.cuda.is_available() if accelerator == "auto" else accelerator == "gpu"
@@ -129,22 +148,30 @@ def train(daily: pd.DataFrame, tag: str = "recovered", learning_rate: float = 0.
         num_workers = 4 if on_gpu else 0
 
     device = torch.cuda.get_device_name(0) if on_gpu else "CPU"
-    print(f"[{tag}] {device} | batch_size={batch_size} num_workers={num_workers}", flush=True)
+    print(f"[{tag}] {device} | batch={batch_size} workers={num_workers} seed={seed}", flush=True)
 
-    pl.seed_everything(config.RANDOM_STATE, verbose=False)
+    # workers=True also seeds the dataloader workers; without it, batch order varies between
+    # otherwise identical runs
+    pl.seed_everything(seed, workers=True, verbose=False)
     frame = _prepare(daily)
-    training = _dataset(frame, TARGETS[tag], encoder_days, target_transform)
+    training = _dataset(frame, TARGETS[tag], encoder_days)
     validation = TimeSeriesDataSet.from_dataset(
         training, frame[frame.time_idx <= _day(frame, config.VAL_END)],
         min_prediction_idx=_day(frame, config.VAL_START), stop_randomization=True)
 
+    # Lightning suffixes -v1, -v2, ... rather than overwriting, so a grid fills the model dir with
+    # dead checkpoints. Clear this name first; repeat fits use a scratch name so they cannot replace
+    # the model the saved forecasts came from.
     config.MODEL_DIR.mkdir(parents=True, exist_ok=True)
+    stem = config.tft_checkpoint(tag).stem if save_checkpoint else "tft_scratch"
+    for stale in config.MODEL_DIR.glob(f"{stem}*.ckpt"):
+        stale.unlink()
     ckpt = ModelCheckpoint(dirpath=str(config.MODEL_DIR), monitor="val_loss", save_top_k=1,
-                           filename=config.tft_checkpoint(tag).stem)
+                           filename=stem)
+
     model = TemporalFusionTransformer.from_dataset(
         training, learning_rate=learning_rate, hidden_size=hidden_size, dropout=dropout,
-        hidden_continuous_size=max(hidden_size // 2, 4),
-        attention_head_size=4, weight_decay=1e-4,   # fixed: neither moved anything worth tuning
+        hidden_continuous_size=max(hidden_size // 2, 4), attention_head_size=4, weight_decay=1e-4,
         loss=QuantileLoss(quantiles=QUANTILES), output_size=len(QUANTILES))
 
     loader = dict(num_workers=num_workers, persistent_workers=num_workers > 0)
@@ -203,34 +230,54 @@ def _config_id(cfg: dict) -> str:
     return json.dumps({k: cfg[k] for k in sorted(GRID)}, sort_keys=True)
 
 
-def tune(daily: pd.DataFrame, tag: str = "recovered", max_epochs: int = 10,
-         **train_kwargs) -> pd.DataFrame:
+def tune(daily: pd.DataFrame, tag: str = "recovered", seeds=(config.RANDOM_STATE,),
+         max_epochs: int = 15, **train_kwargs) -> pd.DataFrame:
     """Score every config in `GRID` on the VALIDATION window; return the table, best first.
 
-    Ranked by **pinball(avg)**, not WAPE: the ordering stage consumes the whole q10/q50/q90 range,
-    so the metric that scores the range is the one that should choose the model.
+    Each config is fitted once per seed and ranked on the MEAN. `pinball_spread` is the gap between
+    its best and worst seed - the noise floor. **A difference between configs smaller than that
+    spread is not a result**, which a single-seed search cannot tell you.
 
-    Only ranks - each config stops at `max_epochs`, enough to separate configs but not to finish a
-    fit. Retrain the winner with `run(daily, **best_params(tuning))`.
+    Ranked by pinball(avg), not WAPE: the ordering stage consumes the whole q10/q50/q90 range, so
+    the metric that scores the range should choose the model.
 
     Resumes automatically: the CSV is rewritten after every config and configs already in it are
-    skipped, so a disconnect costs one config. Just call `tune` again.
+    skipped, so a disconnect costs one config.
+
+    Rows left over from a DIFFERENT grid are discarded on load. `config_id` only covers the keys of
+    the grid that wrote it, so editing `GRID` mid-search would otherwise leave old rows in the table,
+    ranked against the new ones - and `best_params` reads `iloc[0]`, so a stale winner would be asked
+    for a column it predates and hand back NaN hyperparameters.
     """
     path = config.tft_tuning(tag)
-    rows = pd.read_csv(path).to_dict("records") if path.exists() else []
-    done = {r["config_id"] for r in rows}
     combos = [dict(zip(GRID, values)) for values in itertools.product(*GRID.values())]
+
+    rows = pd.read_csv(path).to_dict("records") if path.exists() else []
+    valid = {_config_id(cfg) for cfg in combos}
+    rows, dropped = [r for r in rows if r["config_id"] in valid], \
+                    [r for r in rows if r["config_id"] not in valid]
+    if dropped:
+        print(f"discarded {len(dropped)} row(s) from a previous grid", flush=True)
+    done = {r["config_id"] for r in rows}
 
     for i, cfg in enumerate(combos, 1):
         if _config_id(cfg) in done:
             continue
-        print(f"\n=== config {i}/{len(combos)}: {cfg} ===", flush=True)
-        model, training = train(daily, tag=tag, max_epochs=max_epochs, **cfg, **train_kwargs)
-        scores = quantile_scores(
-            forecast_period(model, training, daily, config.VAL_START, config.VAL_END))
-        print(f"    -> pinball(avg)={scores['pinball(avg)']}  WAPE={scores['WAPE']}", flush=True)
+        print(f"\n=== config {i}/{len(combos)}: {cfg} x {len(seeds)} seed(s) ===", flush=True)
+        runs = [quantile_scores(forecast_period(
+                    *train(daily, tag=tag, max_epochs=max_epochs, seed=s, save_checkpoint=False,
+                           **cfg, **train_kwargs),
+                    daily, config.VAL_START, config.VAL_END))
+                for s in seeds]
 
-        rows.append({"config_id": _config_id(cfg), **cfg, **scores})
+        scores = pd.DataFrame(runs)
+        pinball = scores["pinball(avg)"]
+        row = {"config_id": _config_id(cfg), **cfg, **scores.mean().round(4).to_dict(),
+               "pinball_spread": round(pinball.max() - pinball.min(), 4), "n_seeds": len(seeds)}
+        print(f"    -> pinball(avg)={row['pinball(avg)']} (spread {row['pinball_spread']})  "
+              f"WAPE={row['WAPE']}", flush=True)
+
+        rows.append(row)
         config.OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
         pd.DataFrame(rows).sort_values("pinball(avg)").to_csv(path, index=False)
 
@@ -245,21 +292,23 @@ def best_params(tuning: pd.DataFrame) -> dict:
 
 
 def run(daily: pd.DataFrame, tag: str = "recovered", periods=("validation", "calibration"),
-        **train_kwargs) -> dict:
-    """Train on one target at full epochs and return `{period: forecast frame}`, saving each.
+        save: bool = True, **train_kwargs) -> dict:
+    """Train on one target and return `{period: forecast frame}`.
 
     Pass the SAME params for both targets - the comparison must change only the target. `periods`
-    excludes the test week, which is opened once at the final evaluation.
+    excludes the test week, which is opened once at the final evaluation. `save=False` writes
+    neither forecasts nor model, for repeat fits that only measure spread.
     """
     windows = {"validation": (config.VAL_START, config.VAL_END),
                "calibration": (config.CAL_START, config.CAL_END)}
-    model, training = train(daily, tag=tag, **train_kwargs)
+    model, training = train(daily, tag=tag, save_checkpoint=save, **train_kwargs)
 
     out = {}
-    config.OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
     for period in periods:
         out[period] = forecast_period(model, training, daily, *windows[period])
-        out[period].to_parquet(config.forecast_parquet(period, tag), index=False)
+        if save:
+            config.OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
+            out[period].to_parquet(config.forecast_parquet(period, tag), index=False)
 
     print(f"[{tag}] validation:", quantile_scores(out["validation"]))
     return out

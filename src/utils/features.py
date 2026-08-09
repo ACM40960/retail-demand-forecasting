@@ -60,6 +60,20 @@ def add_lagged_features(df: pd.DataFrame, source: str,
     return df
 
 
+def censoring_bucket(daily: pd.DataFrame) -> pd.Series:
+    """Each series' share of TRAINING days that sold out, cut into four bands and indexed by series
+    so it can be attached to any frame.
+
+    Training rows only. A rate computed over the whole train file would fold validation and
+    calibration days into a column results are grouped by, which is the same leak as using it as a
+    feature. Bands are the axis `recovery_impact` has to be read on: pooled, the two targets are
+    identical on the rows that get scored.
+    """
+    rate = daily[daily["period"] == "training"].groupby(GROUP)["is_censored"].mean()
+    return pd.cut(rate, [0, 0.25, 0.5, 0.75, 1.001], right=False,
+                  labels=["<25% censored", "25-50%", "50-75%", ">=75%"])
+
+
 def add_lag_roll_features(df: pd.DataFrame) -> pd.DataFrame:
     """Raw-sales lag/roll context plus `censoring_frac`, the share of the 16 active-window hours
     that were out of stock."""

@@ -17,7 +17,6 @@ DAILY_TRAIN = DATA_DIR / "daily_train.parquet"
 DAILY_EVAL = DATA_DIR / "daily_eval.parquet"
 HOURLY_TRAIN = DATA_DIR / "hourly_train.parquet"
 HOURLY_EVAL = DATA_DIR / "hourly_eval.parquet"
-CENSORING_RATE = DATA_DIR / "censoring_rate.parquet"
 
 # ---- data artifacts: recovered demand ----
 RECOVERED_TRAIN = DATA_DIR / "daily_train_recovered.parquet"
@@ -40,6 +39,12 @@ BIAS_BUCKET_CSV = OUTPUTS_DIR / "recovery_by_censoring_bucket.csv"
 LEAKAGE_CHECKS = OUTPUTS_DIR / "leakage_checks.json"
 RECOVERY_PLOT = OUTPUTS_DIR / "recovery_bias_and_example.png"
 HOUR_LEVEL_TABLE = OUTPUTS_DIR / "hour_level_appendix.csv"   # why daily totals rank, not hours
+
+# the check that tests recovery where its headline score cannot: across time
+CORRECTION_BY_PERIOD = OUTPUTS_DIR / "recovery_correction_by_period.csv"
+
+# the 2x2's missing cell: one baseline, two targets, scored per censoring band
+RECOVERY_IMPACT = OUTPUTS_DIR / "recovery_impact.csv"
 
 # forecasting: one saved forecast per (period, target), plus the fitted TFT for each target.
 # `tag` is "recovered" or "raw" - the two targets being compared - so both sets of files sit side by
