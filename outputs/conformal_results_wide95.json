@@ -1,0 +1,96 @@
+{
+  "method": "CQR",
+  "nominal": 0.95,
+  "alpha": 0.05,
+  "band": [
+    "q025",
+    "q975"
+  ],
+  "group_col": null,
+  "calibration_set": [
+    "calibration"
+  ],
+  "calibration_n": 45028,
+  "global_offset": 0.1704,
+  "periods": {
+    "validation": {
+      "n_rows": 78414,
+      "n_observed": 47994,
+      "uncorrected": {
+        "coverage": 0.9179,
+        "mean_width": 1.4554,
+        "n": 47994
+      },
+      "corrected": {
+        "coverage": 0.9702,
+        "mean_width": 1.7545,
+        "n": 47994
+      },
+      "kupiec_corrected": {
+        "miss_rate": 0.0298,
+        "expected": 0.05,
+        "LR_pof": 477.1928,
+        "p_value": 0.0,
+        "calibrated": false
+      }
+    },
+    "test": {
+      "n_rows": 39207,
+      "n_observed": 23402,
+      "uncorrected": {
+        "coverage": 0.8577,
+        "mean_width": 1.3727,
+        "n": 23402
+      },
+      "corrected": {
+        "coverage": 0.9179,
+        "mean_width": 1.6606,
+        "n": 23402
+      },
+      "kupiec_corrected": {
+        "miss_rate": 0.0821,
+        "expected": 0.05,
+        "LR_pof": 429.6106,
+        "p_value": 0.0,
+        "calibrated": false
+      }
+    }
+  },
+  "reliability_test": [
+    {
+      "nominal": 0.5,
+      "empirical": 0.4906,
+      "mean_width": 0.4855
+    },
+    {
+      "nominal": 0.6,
+      "empirical": 0.5818,
+      "mean_width": 0.6138
+    },
+    {
+      "nominal": 0.7,
+      "empirical": 0.6747,
+      "mean_width": 0.7741
+    },
+    {
+      "nominal": 0.8,
+      "empirical": 0.771,
+      "mean_width": 1.0047
+    },
+    {
+      "nominal": 0.9,
+      "empirical": 0.8711,
+      "mean_width": 1.4198
+    },
+    {
+      "nominal": 0.95,
+      "empirical": 0.9296,
+      "mean_width": 1.9114
+    },
+    {
+      "nominal": 0.99,
+      "empirical": 0.9835,
+      "mean_width": 3.2948
+    }
+  ]
+}

@@ -25,7 +25,8 @@ from pytorch_forecasting import TemporalFusionTransformer, TimeSeriesDataSet
 from pytorch_forecasting.data import GroupNormalizer
 from pytorch_forecasting.metrics import QuantileLoss
 
-from .utils import config
+from . import recovery
+from .utils import config, data_io
 from .utils.features import CATEGORICAL, FEATURES
 from .utils.metrics import quantile_scores
 
@@ -51,6 +52,18 @@ KNOWN_REALS = [c for c in FEATURES if c not in CATEGORICAL and not c.startswith(
 # carried into the saved forecast: scoring needs the first two, the ordering stage simulates
 # against `recovered_demand`
 CARRY = ["sale_amount", "stock_hour6_22_cnt", "recovered_demand", "is_censored"]
+
+
+def build_master_frame() -> pd.DataFrame:
+    """The daily frame every saved forecast gets joined back to for scoring: raw `sale_amount`,
+    the stockout flag and `recovered_demand`, across every split (train/eval, i.e. including the
+    test week) - not just the periods a given forecast run happened to save.
+
+    This is the one place that assembly happens, so `conformal.py` (and anything else that needs
+    ground truth next to a saved forecast) reads it from here rather than re-deriving it."""
+    return recovery.load_daily().merge(
+        data_io.load("recovered")[["store_id", "product_id", "dt", "recovered_demand"]],
+        on=["store_id", "product_id", "dt"], how="left")
 
 # 8 configs. Kept small on purpose: across TWO searches now, no setting has separated its top rows
 # by more than the seed spread (0.0033 pinball, measured). The 24-config run spanned 0.1021-0.1120
@@ -336,11 +349,13 @@ def run(daily: pd.DataFrame, tag: str = "recovered", periods=("validation", "cal
     """Train on one target and return `{period: forecast frame}`.
 
     Pass the SAME params for both targets - the comparison must change only the target. `periods`
-    excludes the test week, which is opened once at the final evaluation. `save=False` writes
-    neither forecasts nor model, for repeat fits that only measure spread.
+    defaults to excluding the test week - pass `periods=(..., "test")` explicitly to open it, and
+    only at the final evaluation (PLAN.md §5). `save=False` writes neither forecasts nor model,
+    for repeat fits that only measure spread.
     """
     windows = {"validation": (config.VAL_START, config.VAL_END),
-               "calibration": (config.CAL_START, config.CAL_END)}
+               "calibration": (config.CAL_START, config.CAL_END),
+               "test": (config.TEST_START, config.TEST_END)}
     model, training = train(daily, tag=tag, save_checkpoint=save, **train_kwargs)
 
     out = {}
@@ -352,3 +367,43 @@ def run(daily: pd.DataFrame, tag: str = "recovered", periods=("validation", "cal
 
     print(f"[{tag}] validation:", quantile_scores(out["validation"]))
     return out
+
+
+def load(tag: str, daily: pd.DataFrame, encoder_days: int):
+    """Reload a checkpoint `train()` already fit and saved, paired with the exact
+    `TimeSeriesDataSet` it was fit against - so a later notebook can forecast a NEW period from
+    the saved model without paying for a retrain (`outputs/models/` "must outlive the kernel" -
+    README §8).
+
+    Rebuilding `training` here is safe: `_dataset` is a deterministic function of the
+    training-window rows and `encoder_days`, neither of which involves the model's learned
+    weights, so the object built here is the training dataset `train` used, not an
+    approximation of it. `encoder_days` isn't saved on the checkpoint itself, so pass the value
+    actually used to fit it - e.g. `best_params(pd.read_csv(config.tft_tuning(tag)))["encoder_days"]`.
+    """
+    ckpt = config.tft_checkpoint(tag)
+    if not ckpt.exists():
+        raise FileNotFoundError(f"{ckpt.name} missing - run forecast.run(..., tag='{tag}') first.")
+    training = _dataset(_prepare(daily), TARGETS[tag], encoder_days)
+    model = TemporalFusionTransformer.load_from_checkpoint(ckpt)
+    return model, training
+
+
+def forecast_test(daily: pd.DataFrame, tag: str = "recovered", save: bool = True) -> pd.DataFrame:
+    """Forecast the TEST week from the ALREADY-FIT checkpoint for `tag` - no retraining, and
+    nothing about the test week informs the model, which was early-stopped on validation alone.
+
+    Ground rule: the test week is opened once, at the final evaluation (PLAN.md §5) - call this
+    only when you mean to score or order against it, not as part of routine tuning.
+    """
+    tuning_path = config.tft_tuning(tag)
+    if not tuning_path.exists():
+        raise FileNotFoundError(f"{tuning_path.name} missing - run forecast.tune(..., tag='{tag}') "
+                                f"first, so the encoder length the checkpoint was fit with is known.")
+    encoder_days = best_params(pd.read_csv(tuning_path))["encoder_days"]
+    model, training = load(tag, daily, encoder_days)
+    fc = forecast_period(model, training, daily, config.TEST_START, config.TEST_END)
+    if save:
+        config.OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
+        fc.to_parquet(config.forecast_parquet("test", tag), index=False)
+    return fc

@@ -51,10 +51,22 @@ RECOVERY_IMPACT = OUTPUTS_DIR / "recovery_impact.csv"
 # side and neither can quietly overwrite the other.
 FORECAST_SCORECARD = OUTPUTS_DIR / "forecast_vs_baselines.csv"
 
+# ordering (Phase 6): per-product-day results at the headline cost ratio, and the full cost-ratio
+# sweep that proves (or doesn't) the waste/stockout KPI holds everywhere, not just at one ratio.
+ORDER_SIMULATION_CSV = OUTPUTS_DIR / "order_simulation.csv"
+COST_SWEEP_CSV = OUTPUTS_DIR / "cost_sweep.csv"
+
 
 def forecast_parquet(period: str, tag: str):
     """Saved q10/q50/q90 for one period and one target."""
     return OUTPUTS_DIR / f"forecast_{period}_{tag}.parquet"
+
+
+def forecast_paths(tag: str = "recovered") -> dict:
+    """{period: path} for every period a forecast can be saved for, one target. The single place
+    `conformal.py` (and anything else that needs more than one period at once) asks for saved
+    forecast locations, so a path is never rebuilt by hand at the call site."""
+    return {p: forecast_parquet(p, tag) for p in ("validation", "calibration", "test")}
 
 
 def tft_checkpoint(tag: str):
@@ -66,6 +78,12 @@ def tft_tuning(tag: str):
     """The hyperparameter search ranking. Rewritten after every config, so an interrupted grid
     resumes from it rather than restarting."""
     return OUTPUTS_DIR / f"tft_tuning_{tag}.csv"
+
+
+def tft_seed_spread(tag: str):
+    """Repeat-seed fits at the winning config: mean + spread, the noise floor any reported margin
+    has to clear. Saved so the check doesn't have to be re-run (~3 fits) just to be trusted."""
+    return OUTPUTS_DIR / f"tft_seed_spread_{tag}.csv"
 
 # Its wording lives here rather than in data_io, so that module holds only the numbers. Markdown
 # because the file is committed and read on GitHub.
@@ -101,6 +119,8 @@ VAL_START = "2024-05-29"   # validation: early stopping, model choice, baseline 
 VAL_END = "2024-06-11"
 CAL_START = "2024-06-12"   # calibration: conformal band widths only
 CAL_END = "2024-06-25"
+TEST_START = "2024-06-26"   # test: the shipped eval file - opened once, at the final evaluation
+TEST_END = "2024-07-02"
 
 # ---- knobs ----
 HF_DATASET = "Dingdong-Inc/FreshRetailNet-50K"

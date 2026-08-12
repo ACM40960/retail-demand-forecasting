@@ -163,7 +163,7 @@ def load(kind: str) -> pd.DataFrame:
     """Load a train/eval parquet pair ("daily" | "hourly" | "recovered") into one frame with a
     `split` column ("train"/"eval") and parsed dates."""
     train_path, eval_path = _PAIRS[kind]
-    print(f"loading {kind} train/eval pair from {train_path} and {eval_path}")
+    print(f"loading {kind} subset from {train_path} + {eval_path}")
     train = pd.read_parquet(train_path).assign(split="train")
     eval_ = pd.read_parquet(eval_path).assign(split="eval")
     combined = pd.concat([train, eval_], ignore_index=True)
