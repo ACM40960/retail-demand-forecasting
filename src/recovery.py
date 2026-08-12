@@ -44,9 +44,16 @@ ACTIVE_LO, ACTIVE_HI = config.ACTIVE_HOURS
 N_TEST_DAYS = 5000   # clean days rebuilt to score a candidate
 
 
-def load_daily() -> pd.DataFrame:
-    """The daily frame with lag/rolling context and the frozen `period` labels attached."""
-    return add_period(add_lag_roll_features(data_io.load("daily")))
+def load_daily(kind: str = "daily") -> pd.DataFrame:
+    """The daily frame with lag/rolling context and the frozen `period` labels attached.
+
+    `kind="recovered"` reads the parquets `run` wrote instead - the same raw columns plus
+    `recovered_demand`. Both go through the identical pipeline because NEITHER file stores derived
+    columns: `_save_recovered` strips lag/rolling/`period` before writing, so they are rebuilt here
+    and cannot describe a subset that no longer exists. Downstream stages take this route rather
+    than loading `daily` and joining `recovered_demand` onto it - one pair of parquets, same frame.
+    """
+    return add_period(add_lag_roll_features(data_io.load(kind)))
 
 
 _hours = None

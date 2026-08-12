@@ -47,8 +47,20 @@ def quantile_scores(df: pd.DataFrame, actual: str = "sale_amount") -> dict:
 def scores_by_bucket(df: pd.DataFrame, bucket: pd.Series, actual: str = "sale_amount"):
     """`quantile_scores` per band of `bucket` (a per-series Series, e.g. `censoring_bucket`), plus
     a pooled ALL row. The pooled row is the one that hides the effect - keep both."""
+    # Cast the keys to the bucket index's own dtypes first. `forecast._prepare` stores the IDs as
+    # STRINGS so the TFT treats them as embeddings, while `censoring_bucket` is indexed on the daily
+    # frame's integer IDs - reindexing across that matches nothing, and it fails SILENTLY: every band
+    # comes back NaN, groupby yields no groups, and the caller gets a clean-looking table holding only
+    # the pooled ALL row. That happened, and cost a run. Hence the cast and the check below it.
+    levels = bucket.index.levels
+    keys = pd.DataFrame({c: df[c].astype(levels[i].dtype)
+                         for i, c in enumerate(["store_id", "product_id"])})
     # set_axis, not to_numpy: keeps the categorical dtype, so bands stay in severity order
-    band = bucket.reindex(pd.MultiIndex.from_frame(df[["store_id", "product_id"]])).set_axis(df.index)
+    band = bucket.reindex(pd.MultiIndex.from_frame(keys)).set_axis(df.index)
+    if band.isna().all():
+        raise ValueError(f"no row matched the bucket index - {len(df):,} rows, 0 banded. Frame keys "
+                         f"are {df['store_id'].dtype}/{df['product_id'].dtype}, bucket index is "
+                         f"{levels[0].dtype}/{levels[1].dtype}")
 
     def row(g):   # n counts the rows that are actually scored, not the rows in the band
         return {"n_scored": int((g["stock_hour6_22_cnt"] == 0).sum()),

@@ -14,6 +14,7 @@ target it was trained on.
 import itertools
 import json
 import logging
+import os
 import warnings
 
 import lightning.pytorch as pl
@@ -29,7 +30,17 @@ from .utils.features import CATEGORICAL, FEATURES
 from .utils.metrics import quantile_scores
 
 HORIZON = 7
-QUANTILES = [0.1, 0.5, 0.9]
+QUANTILES = [0.025, 0.1, 0.5, 0.8, 0.9, 0.975]
+
+# Column name per quantile, stated explicitly rather than derived as f"q{int(q*100)}". That
+# expression truncates: 0.025 lands on "q2" and 0.975 on "q97" (float, so 97.4999...), which name the
+# 2nd and 97th percentiles rather than the 2.5th and 97.5th - and neither matches the `q025`/`q975`
+# the ordering stage reads. Two-decimal quantiles have no safe integer name, so they get spelled out.
+#
+# 0.8 is here because the ordering stage reads tau* = c_u/(c_u+c_o), and the headline cost ratio of
+# 4:1 puts that at exactly 0.8. Without it the order is interpolated between q50 and q90.
+QCOL = {0.025: "q025", 0.1: "q10", 0.5: "q50", 0.8: "q80", 0.9: "q90", 0.975: "q975"}
+assert set(QUANTILES) <= set(QCOL), f"no column name for {set(QUANTILES) - set(QCOL)}"
 TARGETS = {"recovered": "recovered_demand", "raw": "sale_amount"}   # the two targets compared
 
 # The same feature lists the rest of the pipeline uses, split the way the TFT needs them: IDs become
@@ -41,27 +52,23 @@ KNOWN_REALS = [c for c in FEATURES if c not in CATEGORICAL and not c.startswith(
 # against `recovered_demand`
 CARRY = ["sale_amount", "stock_hour6_22_cnt", "recovered_demand", "is_censored"]
 
-# 24 configs. A 48-config full-factorial search on an earlier subset found NO setting moved
-# validation pinball by more than the seed-to-seed spread - the largest main effect was half the
-# noise floor. That result is why the levels here are chosen rather than widened: each brackets or
-# extends the direction that search pointed at, instead of re-scanning ground already covered.
+# 8 configs. Kept small on purpose: across TWO searches now, no setting has separated its top rows
+# by more than the seed spread (0.0033 pinball, measured). The 24-config run spanned 0.1021-0.1120
+# while refitting the WINNER moved it 0.0026; the 16-config run found exactly ONE effect that cleared
+# noise, and it was `weight_decay=1e-2` being catastrophic - all eight heavy-decay configs scored
+# 0.126-0.128 against 0.1025-0.1071 at 1e-4. Budget belongs on seeds, not configs.
 #
-#   learning_rate  0.01 was the interior optimum of {0.003, 0.01, 0.03}; this brackets it tightly
-#   dropout        weakest effect measured, but re-searched rather than assumed - see below
-#   hidden_size    32 beat 16, so the direction is up; 64 is newly plausible on a larger subset
-#   encoder_days   14 beat 28, so the direction is down; 7 has never been tested
-#
-# `learning_rate` and `dropout` are re-searched rather than fixed at their old best because that
-# search ran on a store draw sharing only 2 stores with the current one - a near-disjoint sample of
-# the same corpus. Its signal-to-noise CONCLUSION transfers; its specific optima do not.
-#
-# `target_transform` was in the old search and is absent here: `none` beat `log1p`, and `train` has
-# no such parameter, so half that table tested something this code cannot do.
+#   weight_decay   REMOVED from the search. 1e-2 wrecks the model; 1e-4 - `train`'s default, and the
+#                  value both winners used - is fine. A dimension whose only measurable effect is
+#                  "do not turn it up" is settled, not open
+#   learning_rate  0.005 and 0.01 took the top two places in both searches
+#   dropout        0.2 beat 0.3 by 0.0017, inside noise, kept because it is nearly free
+#   encoder_days   7 won both times; 14 stays close enough to keep
 GRID = {
-    "learning_rate": [0.005, 0.01, 0.02],
-    "dropout": [0.1, 0.2],
-    "hidden_size": [32, 64],
-    "encoder_days": [7, 14],
+    "learning_rate": [0.005, 0.01],
+    "dropout": [0.2, 0.3],
+    "encoder_days": [3, 5, 7],
+    "weight_decay":[1e-3, 1e-4],
 }
 
 
@@ -76,6 +83,30 @@ class _EpochLine(pl.Callback):
             return f"{float(v):.4f}" if v is not None else "n/a"
         print(f"  epoch {trainer.current_epoch:>2}  train_loss={metric('train_loss_epoch')}  "
               f"val_loss={metric('val_loss')}", flush=True)
+
+
+def _select_accelerator(accelerator: str) -> str:
+    """Resolve `"auto"` to the best accelerator Lightning can actually use: CUDA, then Apple's MPS
+    (Colab gives CUDA; a Mac laptop gives MPS or nothing), falling back to CPU. An explicit choice
+    ("cpu"/"gpu"/"mps") is passed through unchanged.
+
+    MPS coverage in pytorch-forecasting's ops is incomplete, so PYTORCH_ENABLE_MPS_FALLBACK is set
+    (without overriding a value the caller already set) - unsupported ops silently run on CPU instead
+    of crashing the fit.
+    """
+    if accelerator != "auto":
+        return accelerator
+    if torch.cuda.is_available():
+        return "gpu"
+    if torch.backends.mps.is_available():
+        os.environ.setdefault("PYTORCH_ENABLE_MPS_FALLBACK", "1")
+        return "mps"
+    return "cpu"
+
+
+def _device_name(accel: str) -> str:
+    return {"gpu": lambda: torch.cuda.get_device_name(0), "mps": lambda: "Apple GPU (MPS)"} \
+        .get(accel, lambda: "CPU")()
 
 
 def _quiet_lightning():
@@ -120,7 +151,8 @@ def _dataset(frame: pd.DataFrame, target: str, encoder_days: int):
 
 def train(daily: pd.DataFrame, tag: str = "recovered", learning_rate: float = 0.01,
           encoder_days: int = 14, hidden_size: int = 32, dropout: float = 0.1,
-          max_epochs: int = 15, patience: int = 5, seed: int = config.RANDOM_STATE,
+          weight_decay: float = 1e-4,
+          max_epochs: int = 15, patience: int = 8, seed: int = config.RANDOM_STATE,
           batch_size: int = None, num_workers: int = None, accelerator: str = "auto",
           save_checkpoint: bool = True):
     """Fit the TFT and return `(model, training_dataset)`.
@@ -142,13 +174,14 @@ def train(daily: pd.DataFrame, tag: str = "recovered", learning_rate: float = 0.
     notebooks. `seed` varies the fit while holding data and settings constant.
     """
     _quiet_lightning()
-    on_gpu = torch.cuda.is_available() if accelerator == "auto" else accelerator == "gpu"
-    batch_size = batch_size or (1024 if on_gpu else 256)
+    accel = _select_accelerator(accelerator)
+    on_accelerator = accel != "cpu"
+    batch_size = batch_size or (1024 if on_accelerator else 256)
     if num_workers is None:
-        num_workers = 4 if on_gpu else 0
+        num_workers = 4 if on_accelerator else 0
 
-    device = torch.cuda.get_device_name(0) if on_gpu else "CPU"
-    print(f"[{tag}] {device} | batch={batch_size} workers={num_workers} seed={seed}", flush=True)
+    print(f"[{tag}] {_device_name(accel)} | batch={batch_size} workers={num_workers} seed={seed}",
+          flush=True)
 
     # workers=True also seeds the dataloader workers; without it, batch order varies between
     # otherwise identical runs
@@ -171,15 +204,22 @@ def train(daily: pd.DataFrame, tag: str = "recovered", learning_rate: float = 0.
 
     model = TemporalFusionTransformer.from_dataset(
         training, learning_rate=learning_rate, hidden_size=hidden_size, dropout=dropout,
-        hidden_continuous_size=max(hidden_size // 2, 4), attention_head_size=4, weight_decay=1e-4,
+        hidden_continuous_size=max(hidden_size // 2, 4), attention_head_size=4,
+        weight_decay=weight_decay,
         loss=QuantileLoss(quantiles=QUANTILES), output_size=len(QUANTILES))
 
     loader = dict(num_workers=num_workers, persistent_workers=num_workers > 0)
-    pl.Trainer(max_epochs=max_epochs, accelerator="gpu" if on_gpu else "cpu", devices=1,
+    pl.Trainer(max_epochs=max_epochs, accelerator=accel, devices=1,
                gradient_clip_val=0.1, logger=False, enable_model_summary=False,
                enable_progress_bar=False,   # replaced by _EpochLine - see its docstring
-               callbacks=[EarlyStopping(monitor="val_loss", patience=patience), ckpt,
-                          _EpochLine()]).fit(
+               # patience 8 against a ceiling of 15 means nearly every config runs the full budget,
+               # so configs are compared at EQUAL training rather than at whatever epoch a noisy dip
+               # happened to end them - the previous run stopped configs anywhere from 8 to 15 epochs.
+               # `min_delta` stops a swing smaller than the metric's own jitter counting as progress
+               # and resetting the counter. Overshooting costs only compute: ModelCheckpoint keeps the
+               # best epoch and `train` reloads it.
+               callbacks=[EarlyStopping(monitor="val_loss", patience=patience, min_delta=1e-3),
+                          ckpt, _EpochLine()]).fit(
         model,
         train_dataloaders=training.to_dataloader(train=True, batch_size=batch_size, **loader),
         val_dataloaders=validation.to_dataloader(train=False, batch_size=batch_size * 2, **loader))
@@ -195,7 +235,7 @@ def _forecast_week(model, training, frame: pd.DataFrame, last_day: int) -> pd.Da
     """
     ds = TimeSeriesDataSet.from_dataset(training, frame[frame.time_idx <= last_day],
                                         predict=True, stop_randomization=True)
-    batch = 1024 if torch.cuda.is_available() else 256
+    batch = 1024 if _select_accelerator("auto") != "cpu" else 256
     out = model.predict(ds.to_dataloader(train=False, batch_size=batch), mode="quantiles",
                         return_index=True)
     preds, index = out.output.cpu().numpy(), out.index.reset_index(drop=True)
@@ -205,7 +245,7 @@ def _forecast_week(model, training, frame: pd.DataFrame, last_day: int) -> pd.Da
         day = index[["store_id", "product_id"]].copy()
         day["time_idx"] = index["time_idx"] + step
         for i, q in enumerate(QUANTILES):
-            day[f"q{int(q * 100)}"] = preds[:, step, i].clip(min=0)   # demand cannot be negative
+            day[QCOL[q]] = preds[:, step, i].clip(min=0)   # demand cannot be negative
         days.append(day)
     return pd.concat(days, ignore_index=True)
 

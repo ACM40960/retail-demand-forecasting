@@ -1,0 +1,6 @@
+,WAPE,WPE,MAE,pinball(avg),CRPS~,pinball@0.5,n_series,n_failed
+tft_recovered,0.3284,0.0851,0.3358,0.1074,0.2091,,,
+tft_raw,0.3286,-0.0656,0.3364,0.1089,0.212,,,
+seasonal_naive,0.4213,0.0187,0.4301,,,0.2212,,
+xgboost_quantile,0.3423,-0.0187,0.3502,0.1121,0.2181,,,
+sarima,0.521,-0.2521,0.4149,,,,30.0,0.0
