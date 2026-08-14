@@ -10,7 +10,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = ROOT / "data" / "processed"
 OUTPUTS_DIR = ROOT / "outputs"
-MODEL_DIR = OUTPUTS_DIR / "models"   # fitted models that must outlive the kernel that fit them
+
+# outputs/ is split by artifact KIND, not by stage, so a reader looking for "the numbers" or "the
+# pictures" has one place to look rather than sifting a flat directory.
+FORECAST_DIR = OUTPUTS_DIR / "forecasts"   # parquets, one subdirectory per model family
+REPORTS_DIR = OUTPUTS_DIR / "reports"      # csv / json / md - everything with numbers in it
+PLOTS_DIR = OUTPUTS_DIR / "plots"          # png
+MODEL_DIR = OUTPUTS_DIR / "models"         # fitted models that must outlive the kernel that fit them
 
 # ---- data artifacts: the working subset ----
 DAILY_TRAIN = DATA_DIR / "daily_train.parquet"
@@ -26,47 +32,80 @@ RECOVERED_EVAL = DATA_DIR / "daily_eval_recovered.parquet"
 # The subset itself is rebuildable from (n_stores, RANDOM_STATE), so it is not committed. This
 # summary is: it is the committed record of what the reported numbers describe, and a rebuild
 # rewrites it.
-SUBSET_SUMMARY = OUTPUTS_DIR / "subset_summary.md"
-BASELINE_SCORECARD = OUTPUTS_DIR / "baseline_scorecard.csv"
+SUBSET_SUMMARY = REPORTS_DIR / "subset_summary.md"
+BASELINE_SCORECARD = REPORTS_DIR / "baseline_scorecard.csv"
 
 # recovery: the Stage-1 model and the bias correction that together produced the recovered parquets.
 # Without them `recovered_demand` is an unexplainable column - the correction is a fitted parameter
 # applied to every recovered hour, so it belongs on disk next to its output.
 STAGE1_MODEL = MODEL_DIR / "recovery_stage1_lgbm.txt"   # LightGBM native text format
-RECOVERY_PARAMS = OUTPUTS_DIR / "recovery_params.json"
-RECOVERY_COMPARISON = OUTPUTS_DIR / "recovery_model_comparison.csv"   # the table that picks Stage 1
-BIAS_BUCKET_CSV = OUTPUTS_DIR / "recovery_by_censoring_bucket.csv"
-LEAKAGE_CHECKS = OUTPUTS_DIR / "leakage_checks.json"
-RECOVERY_PLOT = OUTPUTS_DIR / "recovery_bias_and_example.png"
-HOUR_LEVEL_TABLE = OUTPUTS_DIR / "hour_level_appendix.csv"   # why daily totals rank, not hours
+RECOVERY_PARAMS = REPORTS_DIR / "recovery_params.json"
+RECOVERY_COMPARISON = REPORTS_DIR / "recovery_model_comparison.csv"   # the table that picks Stage 1
+BIAS_BUCKET_CSV = REPORTS_DIR / "recovery_by_censoring_bucket.csv"
+LEAKAGE_CHECKS = REPORTS_DIR / "leakage_checks.json"
+RECOVERY_PLOT = PLOTS_DIR / "recovery_bias_and_example.png"
+HOUR_LEVEL_TABLE = REPORTS_DIR / "hour_level_appendix.csv"   # why daily totals rank, not hours
 
 # the check that tests recovery where its headline score cannot: across time
-CORRECTION_BY_PERIOD = OUTPUTS_DIR / "recovery_correction_by_period.csv"
+CORRECTION_BY_PERIOD = REPORTS_DIR / "recovery_correction_by_period.csv"
 
 # the 2x2's missing cell: one baseline, two targets, scored per censoring band
-RECOVERY_IMPACT = OUTPUTS_DIR / "recovery_impact.csv"
+RECOVERY_IMPACT = REPORTS_DIR / "recovery_impact.csv"
 
 # forecasting: one saved forecast per (period, target), plus the fitted TFT for each target.
 # `tag` is "recovered" or "raw" - the two targets being compared - so both sets of files sit side by
 # side and neither can quietly overwrite the other.
-FORECAST_SCORECARD = OUTPUTS_DIR / "forecast_vs_baselines.csv"
+FORECAST_SCORECARD = REPORTS_DIR / "forecast_vs_baselines.csv"
 
-# ordering (Phase 6): per-product-day results at the headline cost ratio, and the full cost-ratio
-# sweep that proves (or doesn't) the waste/stockout KPI holds everywhere, not just at one ratio.
-ORDER_SIMULATION_CSV = OUTPUTS_DIR / "order_simulation.csv"
-COST_SWEEP_CSV = OUTPUTS_DIR / "cost_sweep.csv"
+# ordering: per-product-day results at the headline cost ratio, and the full cost-ratio sweep that
+# shows whether a claim holds everywhere rather than at one lucky ratio.
+# Parquet, not CSV, and not in REPORTS_DIR: 39K rows x 20 columns of per-product-day simulation output is
+# row-level DATA, which is what FORECAST_DIR and parquet are for. As a CSV it was 7.8 MB - by itself more
+# than the rest of reports/ put together, in a directory meant to hold summary tables a person reads.
+# `cost_sweep.csv` is the readable summary of this file and stays a CSV.
+ORDER_SIMULATION = FORECAST_DIR / "order_simulation.parquet"
+COST_SWEEP_CSV = REPORTS_DIR / "cost_sweep.csv"
 
 
-def forecast_parquet(period: str, tag: str):
-    """Saved q10/q50/q90 for one period and one target."""
-    return OUTPUTS_DIR / f"forecast_{period}_{tag}.parquet"
+def forecast_parquet(period: str, target: str, family: str = "tft"):
+    """Saved quantile forecast for one period and target, filed under its model family.
+
+    `target` is "recovered" or "raw" - the two things being compared. `family` is which model made it,
+    so the TFT and the gradient-boosted forecaster can hold the same (period, target) without one
+    overwriting the other.
+    """
+    return FORECAST_DIR / family / f"forecast_{period}_{target}.parquet"
 
 
-def forecast_paths(tag: str = "recovered") -> dict:
-    """{period: path} for every period a forecast can be saved for, one target. The single place
-    `conformal.py` (and anything else that needs more than one period at once) asks for saved
-    forecast locations, so a path is never rebuilt by hand at the call site."""
-    return {p: forecast_parquet(p, tag) for p in ("validation", "calibration", "test")}
+def conformal_parquet(period: str, tag: str = None, family: str = "tft",
+                      target: str = "recovered"):
+    """Conformally corrected intervals, named like the forecast they were computed from.
+
+    `family` AND `target` are both in the path for the same reason they are in `forecast_parquet`:
+    an arm is (model, target), and correcting the raw arm used to overwrite the recovered arm's
+    file because only `tag` varied. That silently turned any multi-arm comparison into the same
+    arm scored twice.
+    """
+    suffix = f"_{tag}" if tag else ""
+    return FORECAST_DIR / family / f"forecast_{period}_{target}_conformal{suffix}.parquet"
+
+
+def conformal_results(tag: str = None, family: str = "tft", target: str = "recovered"):
+    """The coverage / Kupiec / width / reliability report for one conformal run - one file per arm
+    per band, for the same reason `conformal_parquet` is."""
+    suffix = f"_{tag}" if tag else ""
+    return REPORTS_DIR / f"conformal_results_{family}_{target}{suffix}.json"
+
+
+def forecast_paths(tag: str = "recovered", family: str = "tft") -> dict:
+    """{period: path} for every period a forecast can be saved for, one target and one family. The
+    single place `conformal.py` (and anything else that needs more than one period at once) asks for
+    saved forecast locations, so a path is never rebuilt by hand at the call site.
+
+    `family` is here because calibrating the gradient-boosted arms means pointing the same conformal
+    code at `forecasts/xgb/`; without it the correction could only ever be applied to the TFT.
+    """
+    return {p: forecast_parquet(p, tag, family) for p in ("validation", "calibration", "test")}
 
 
 def tft_checkpoint(tag: str):
@@ -74,16 +113,29 @@ def tft_checkpoint(tag: str):
     return MODEL_DIR / f"tft_best_{tag}.ckpt"
 
 
+def gbm_tuning(tag: str):
+    """The gradient-boosted forecaster's config ranking. Separate file from the TFT's so the two
+    searches cannot overwrite each other."""
+    return REPORTS_DIR / f"gbm_tuning_{tag}.csv"
+
+
+def learning_curve_csv(family: str, tag: str):
+    """Train-vs-eval loss per training step, for one model family.
+
+    The one measurement a hyperparameter search cannot make: a grid scores configs on validation only,
+    so it finds the best config without ever showing whether that config memorises. Saved because the
+    TFT's costs a GPU fit to reproduce.
+
+    The two families' curves are NOT on a shared axis - the TFT's x is epochs and the tree's is boosting
+    rounds, and each uses its own loss implementation. Plot them as two panels and compare shape.
+    """
+    return REPORTS_DIR / f"{family}_learning_curve_{tag}.csv"
+
+
 def tft_tuning(tag: str):
     """The hyperparameter search ranking. Rewritten after every config, so an interrupted grid
     resumes from it rather than restarting."""
-    return OUTPUTS_DIR / f"tft_tuning_{tag}.csv"
-
-
-def tft_seed_spread(tag: str):
-    """Repeat-seed fits at the winning config: mean + spread, the noise floor any reported margin
-    has to clear. Saved so the check doesn't have to be re-run (~3 fits) just to be trusted."""
-    return OUTPUTS_DIR / f"tft_seed_spread_{tag}.csv"
+    return REPORTS_DIR / f"tft_tuning_{tag}.csv"
 
 # Its wording lives here rather than in data_io, so that module holds only the numbers. Markdown
 # because the file is committed and read on GitHub.

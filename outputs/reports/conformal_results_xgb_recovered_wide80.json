@@ -1,0 +1,38 @@
+{
+  "method": "split CQR",
+  "nominal": 0.8,
+  "band": [
+    "q10",
+    "q90"
+  ],
+  "family": "xgb",
+  "forecast_tag": "recovered",
+  "calibration_set": [
+    "calibration"
+  ],
+  "calibration_n": 45028,
+  "periods": {
+    "validation": {
+      "n_rows": 78414,
+      "n_observed": 47994,
+      "offset": 0.0965,
+      "drift_inflation": 0.0,
+      "uncorrected": {
+        "coverage": 0.7395,
+        "mean_width": 1.0071,
+        "n": 47994
+      },
+      "corrected": {
+        "coverage": 0.8455,
+        "mean_width": 1.1995,
+        "n": 47994
+      },
+      "coverage_ci": {
+        "coverage": 0.8455,
+        "ci_low": 0.828,
+        "ci_high": 0.8612,
+        "n_days": 14
+      }
+    }
+  }
+}

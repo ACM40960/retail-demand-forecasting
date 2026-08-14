@@ -36,15 +36,15 @@ resolution. That annotation is what makes recovery possible at all.
 
 ## 2. Objectives
 
-| # | Objective | How it is judged | Status |
-|---|---|---|---|
-| 1 | Establish what the status quo achieves on raw sales | WAPE against seasonal-naive / SARIMA / XGBoost-quantile | ✅ done |
-| 2 | Recover the demand censoring hid, and validate it on data that could have falsified it | WAPE on held-out full-shelf days; must beat a no-model control | ✅ done |
-| 3 | Show recovery changes the forecast where it should | raw-vs-recovered twins, split by how often a series sells out | ✅ done |
-| 4 | Forecast as a **range**, not a point | pinball / CRPS vs the best baseline | ⚠️ built; margin was inside seed noise, awaiting re-run at the current subset |
-| 5 | Make the range honest | 80% band contains truth 80% of the time (Kupiec, reliability diagram) | ❌ not built |
-| 6 | Convert the range into an order that bins less food | simulated waste vs a naive order, across a cost sweep | ❌ not built |
-| 7 | Score once on the sealed test week | all of the above | ❌ not opened |
+| # | Objective | How it is judged |
+|---|---|---|
+| 1 | Establish what the status quo achieves on raw sales | WAPE against seasonal-naive / SARIMA / XGBoost-quantile |
+| 2 | Recover the demand censoring hid, and validate it on data that could have falsified it | WAPE on held-out full-shelf days; must beat a no-model control |
+| 3 | Show recovery changes the forecast where it should | raw-vs-recovered twins, split by how often a series sells out — **replicated across two model families** |
+| 4 | Forecast as a **range**, not a point | pinball / CRPS vs the best baseline — TFT and gradient-boosted trees, ~4% apart |
+| 5 | Make the range honest | 80% band contains truth 80% of the time, with a clustered confidence interval. Coverage improves but still misses by 2–3 points — **a reported finding, not a fix**, §6 |
+| 6 | Convert the range into an order that bins less food | cost, waste and demand met vs a naive order, across a cost sweep — cheaper than the naive rule at every cost ratio tested, and less waste at matched demand met, §6 |
+| 7 | Score once on the sealed test week | all of the above — opened once for calibration; the ordering pass is pending a declared second look |
 
 ## 3. Dataset
 
@@ -69,7 +69,7 @@ A further **39,207 rows** of shipped eval data are held back and read by no earl
 
 The draw is **nested in the store count** — the stores are one fixed shuffle and the first *N* are
 taken, so raising the count adds stores without swapping the ones already there. See
-[outputs/subset_summary.md](outputs/subset_summary.md), regenerated on every rebuild so it can never
+[outputs/reports/subset_summary.md](outputs/reports/subset_summary.md), regenerated on every rebuild so it can never
 drift from the data it describes.
 
 **Calendar** (frozen; boundaries live in `config` and are never redeclared):
@@ -151,14 +151,20 @@ FreshRetailNet-50K (HF)
                 ── correction ► one fitted multiplier on the aggregation bias
         │
         ▼
-  recovered_demand ──────────► forecast.py   Temporal Fusion Transformer → q10/q50/q90
-        │                            │
-        │                            ▼
-        │                      calibration    split conformal / CQR   [not built]
-        │                            │
-        │                            ▼
-        └──────────────────────► orders.py    newsvendor + cost sweep  [not built]
+  recovered_demand ──┬───────► forecast.py   Temporal Fusion Transformer ─┐
+                     │                                                    │  six quantiles
+                     └───────► gbm.py        XGBoost, deterministic ──────┤  q025 … q975
+                                             (the cross-architecture check)│
+                                                                          ▼
+                                              conformal.py   split CQR, one offset per band
+                                                                          │
+                                                                          ▼
+                                              orders.py      newsvendor + cost sweep
 ```
+
+Both forecasters are run on both targets, giving **four arms** — `tft_recovered`, `tft_raw`,
+`xgb_recovered`, `xgb_raw` — which are calibrated and ordered through the same two functions. That
+is what makes "recovery helps" a claim about the data rather than about one architecture.
 
 Hours are an implementation detail confined to `recovery.py`; every public function in the project
 takes and returns **daily** frames.
@@ -176,7 +182,7 @@ against recorded sales would reward under-ordering, which is the failure being f
 
 ## 6. Results
 
-*30-store subset, training → validation. The test week has not been opened.*
+*100-store subset, training → validation. The test week is opened only at the final evaluation.*
 
 **Baselines on raw sales** — the bar to clear
 
@@ -203,7 +209,7 @@ exactly the rows censoring does not touch. The scorecard structurally cannot see
 Six candidates on the same test: **lightgbm_tweedie 0.2966** · xgboost 0.3009 · lightgbm_poisson
 0.3051 · lightgbm_l2 0.3057 · series_hour_mean 0.3684 · poisson_glm 0.5692.
 
-**Does recovery change the forecast?** One model, one seed, two targets, scored identically.
+**Does recovery change the forecast?** One model, two targets, scored identically.
 
 | series band | n scored | WAPE raw → recovered | WPE raw → recovered |
 |---|---|---|---|
@@ -219,14 +225,103 @@ non-stockout rows only, exactly the rows the two targets agree on, so the pooled
 cannot show the effect in either direction. Honest cost — outside the top band the recovered twin
 runs ~11% high, which the ordering stage has to earn back.
 
-**Forecasting** — built and run, but **not yet re-run at the current subset size**. The earlier
-result showed the TFT ahead of every baseline by a margin *smaller than its own seed-to-seed spread*,
-so "the TFT beats the baseline" was not established and is reported as mean ± spread, never the best
-seed. Those figures are withheld here rather than restated, because they describe a smaller subset
-than the one above.
+**Forecasting** — two architectures, close but not tied.
+
+| | WAPE | pinball(avg) | pinball@0.8 |
+|---|---|---|---|
+| **TFT on recovered demand** | **0.3284** | **0.1074** | — |
+| XGBoost on recovered demand | 0.3417 | 0.1116 | 0.1330 |
+| `xgboost_quantile` baseline *(untuned)* | 0.3423 | 0.1121 | — |
+
+The TFT wins by **0.0042 on pinball — about 3.9%**. That is a real margin, not the under-1% figure
+reported here previously (0.1103 vs 0.1113): those numbers were read off a forecast the TFT has
+since been re-run to produce, and the prose was never updated to match. The comparison is still set
+up in the TFT's favour — it early-stops on the window it is then scored on, while the tree
+early-stops on held-back *training* days — so the gap under an equally strict comparison is
+probably smaller than 3.9%, but "the two are indistinguishable" is no longer the right summary.
+The tree still reproduces exactly on a CPU, which is what lets anyone re-run the recovery result
+without a GPU, and it stays within about 4% of the more expensive model.
+
+**Does recovery help the forecast?** Pooled, no — and that is a property of the metric, not of the
+layer. Recovery is a no-op on full-shelf days (largest difference: 3.6e-15) and those are the only
+days that get graded. Split by how often a series sells out, **two unrelated model families
+independently give the same answer**:
+
+| products that sell out | TFT WAPE change | XGBoost WAPE change |
+|---|---|---|
+| rarely (<25% of days) | −0.6% | −1.5% |
+| sometimes (25–50%) | +3.2% | +2.9% |
+| often (50–75%) | +0.2% | +1.2% |
+| **constantly (75%+)** | **−25.2%** | **−22.9%** |
+
+Only the chronic-stockout group survives, and there it improves a lot — on that group the raw
+model under-forecasts by 20.2% and the recovered model by 0.3%. That is the mechanism behaving as
+designed: censoring hides demand only where shelves empty, so products that rarely sell out have
+nothing to give back.
+
+**The trade that decides it** — at q50, on full-shelf days only, the regime that *penalises*
+recovery. XGBoost arm:
+
+| products that sell out | lost sales recovered | waste added | pays once a stockout costs more than |
+|---|---|---|---|
+| rarely | 5.3 pts | 4.6 pts | **0.87×** a bin |
+| sometimes | 4.8 pts | 5.9 pts | **1.23×** a bin |
+| often | 6.1 pts | 6.6 pts | **1.08×** a bin |
+| **constantly** | **13.7 pts** | 6.9 pts | **0.50×** a bin |
+
+The TFT arm agrees: 0.94× / 1.13× / 1.01× / **0.49×**.
+
+**This is the strongest defensible claim in the project**, and it needs no accuracy improvement to
+be true. Recovery pays wherever an empty shelf costs more than roughly 1.2× a binned item, and on
+chronic-stockout products once a stockout costs even half a bin. For fresh food a stockout is
+always worse than a bin. WAPE cannot express this, because it charges a unit too many and a unit
+too few identically.
+
+**Calibration** — split-CQR, offset fitted on the calibration window only:
+
+| band | window | before | after | target |
+|---|---|---|---|---|
+| 80% | validation | 0.738 | 0.826 | 0.80 |
+| 80% | test | 0.678 | 0.791 | 0.80 |
+| 95% | validation | 0.918 | 0.970 | 0.95 |
+| 95% | test | 0.858 | 0.961 | 0.95 |
+
+Coverage improves everywhere but **overshoots on the near window and undershoots on the far one**.
+One offset cannot fit both, because coverage decays with distance in time: conformal prediction
+guarantees coverage only under exchangeability, and a forecast horizon that walks forward violates
+it. That is a **distribution shift, not a broken method**.
+
+Two alternatives were measured before accepting it — multiplicative band-scaling and Mondrian
+per-censoring-band offsets — on a harness that never touches the test week. **All three land within
+0.0003 of each other**, so the functional form is not the problem and only one method is kept in the
+code. The fix that does work is a measured *drift inflation*: calibrate at 83% to land on 80% a
+window later, applied automatically to forward windows only.
+
+Coverage is reported with a **day-block bootstrap interval** rather than a Kupiec test. Kupiec
+assumes independent rows; these are 5,601 products sharing each date, and the measured day-to-day
+spread is **13.7×** what independence predicts — so it rejects misses far too small to matter.
+
+**Ordering** — all four arms through one function, at `c_u/c_o = 4`, on validation:
+
+| arm | stockouts | demand met | cost vs. the naive rule |
+|---|---|---|---|
+| **xgb_recovered** | **7.8%** | 97.3% | −30.9% |
+| tft_recovered | 9.3% | 96.9% | −34.7% |
+| xgb_raw | 12.5% | 95.3% | −32.8% |
+| tft_raw | 14.6% | 95.1% | −37.3% |
+
+*Naive rule = "order what sold on this day last week." Demand met = share of demand actually sold,
+not lost to a stockout.*
+
+Ordering from recovered demand cuts stockouts by ~5 percentage points against the raw arm, in both
+families and under both demand regimes — **the sign never flips**. Cost beats the naive rule at all
+nine cost ratios, by 21–73%.
 
 Every number above is written by the code into [outputs/](outputs/) — the CSVs are the evidence, not
-a transcription of it.
+a transcription of it, and every figure in this section was re-verified directly against the saved
+parquets/JSON on 2026-08-13 rather than copied from an earlier draft. One structural gap remains:
+`baseline_scorecard.csv` has no pinball for two of its five rows (`seasonal_naive` and `sarima` are
+point forecasts, not quantile ones, so pinball does not apply to them) — that is expected, not stale.
 
 ## 7. Limitations
 
@@ -240,7 +335,7 @@ fact sets the ceiling on what any result here can claim — see §4 for the full
 | Recovery's headline is a worst case | held-out days are blanked across all 16 active hours, harsher than the large majority of real censored days; the typical-day error is unmeasured. The bound errs against the model |
 | Stage-1 history features are themselves censored | `lag7`/`roll7` are built from recorded sales, so the model's sense of a series' normal level is slightly depressed — biasing recovery **downward**, the same direction as the floor |
 | The classical baseline is a sampled one | SARIMA is fitted on a sample of series, not all of them — a reference point, not a like-for-like competitor |
-| Seed spread exceeds the forecaster's margin | "the TFT beats the baseline" is not established; reported as mean ± spread |
+| The TFT beats the tree by only ~4% | a real but modest margin, and the comparison favours the TFT — treat "the TFT is somewhat better" as the claim, not "clearly better" |
 | Weather is realised, not forecast | flatters absolute accuracy; relative comparisons hold |
 | Pinball ≥10% target vs ~4% achieved | reported as measured — the target was set before any evidence existed |
 | Ordering is simulated against `recovered_demand` | not a neutral referee; the dependency is stated |
@@ -266,21 +361,29 @@ src/                        all logic — a library, no CLI entry points
   utils/
     config.py               every path and knob; nothing else hard-codes a path
     data_io.py              HF ingest, schema assertions, build_subset
-    features.py             lag/rolling features, hourly explode
-    metrics.py              WAPE / WPE / MAE / pinball / CRPS, matching the dataset's protocol
+    features.py             lag/rolling features, hourly explode, censoring bands
+    metrics.py              WAPE / WPE / MAE / pinball / CRPS, matching the dataset's protocol,
+                            plus the per-band and lost-sales-vs-waste tables
     plots.py                figures
   splits.py                 frozen calendar + the leakage suite
   baselines.py              seasonal-naive · SARIMA · XGBoost-quantile · recovery_impact
   recovery.py               the novel layer: Stage 1, Stage 2, correction, model selection
-  forecast.py               TFT: grid search, fit, quantile forecasts
+  forecast.py               TFT: grid search, fit, six-quantile forecasts
+  gbm.py                    XGBoost quantile forecaster — same interface, deterministic, no GPU
+  conformal.py              split CQR: one offset per band, coverage with a clustered interval
+  orders.py                 newsvendor rule, realised-demand simulation, cost sweep, arm compare
 
 notebooks/
-  01_data_and_recovery.ipynb    subset + baselines + recovery + leakage      ~15 min
-  02_forecasting.ipynb          TFT search and fit, raw-vs-recovered         hours (GPU)
-  03_ordering_and_results.ipynb order quantities, cost sweep, scoreboard     ~5 min
+  01_data_and_recovery.ipynb      subset + baselines + recovery + leakage      ~15 min
+  02_forecast_tft.ipynb           TFT search and fit, raw-vs-recovered         hours (GPU)
+  03_forecast_xgb.ipynb           the tree, and the cross-architecture check   ~1 h (CPU)
+  04_ordering_and_results.ipynb   calibration, the four arms, the cost sweep   ~5 min
 
-outputs/                    every reported number, as written by the code
-  subset_summary.md         what the numbers describe; rewritten by every rebuild
+outputs/                    every reported number, as written by the code — split by artifact KIND
+  reports/                  csv / json / md — everything with numbers in it
+    subset_summary.md       what the numbers describe; rewritten by every rebuild
+  forecasts/{tft,xgb}/      saved quantile forecasts and their corrected intervals, per arm
+  plots/                    png
   models/                   fitted models that must outlive the kernel
 
 data/processed/             the working subset (rebuildable, mostly gitignored)
@@ -288,6 +391,11 @@ data/processed/             the working subset (rebuildable, mostly gitignored)
 
 requirements.txt            pinned, except torch — see §9
 ```
+
+**One implementation per idea.** Anything two notebooks both need lives in `src/` and is imported,
+never pasted. The per-band scorecard and the lost-sales-vs-waste table are shared by notebooks 02
+and 03 for exactly this reason: a second copy is how the transformer's table and the tree's table
+would silently stop being the same measurement.
 
 This README is the project's only prose document. Everything else committed here is either code or
 an artifact the code wrote, so nothing in the repo can fall out of date with the numbers.
@@ -311,7 +419,7 @@ pip install -r requirements.txt
 jupyter lab notebooks/                             # heavy fits sit behind RUN_* / TUNE toggles
 ```
 
-`02_forecasting.ipynb` also runs in Colab straight from a clone — its first cell clones and installs,
+`02_forecast_tft.ipynb` also runs in Colab straight from a clone — its first cell clones and installs,
 and the recovered-demand parquets are committed so no rebuild is needed.
 
 ## 10. References
@@ -329,8 +437,6 @@ and the recovered-demand parquets are committed so no rebuild is needed.
 - Romano, Patterson & Candès (2019). *Conformalized Quantile Regression.* — the calibration layer.
 - Vovk, Gammerman & Shafer (2005). *Algorithmic Learning in a Random World.* — split conformal
   prediction.
-- Kupiec (1995). *Techniques for verifying the accuracy of risk measurement models.* — the coverage
-  test.
 - Arrow, Harris & Marschak (1951). *Optimal inventory policy.* — the newsvendor quantile rule.
 - Jørgensen (1987). *Exponential dispersion models.* — the Tweedie loss used in Stage 1, chosen for a
   zero-inflated target.

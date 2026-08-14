@@ -1,7 +1,0 @@
-{
-  "reproducible_day_counts": true,
-  "lag_features_backward_only": true,
-  "fills_use_past_only": true,
-  "stage1_trained_on_training_only": true,
-  "calibration_never_trained_on": true
-}

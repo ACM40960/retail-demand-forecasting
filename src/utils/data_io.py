@@ -117,7 +117,7 @@ def build_subset(n_stores: int = 30, random_state: int = config.SUBSET_SEED) -> 
                    f"(seed {random_state}), keeping every series they carry, all categories."),
         corpus=_describe(daily_train), subset=_describe(sub_train),
         eval_rows=len(sub_eval), stores=stores, categories=categories)
-    config.OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
+    config.REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     config.SUBSET_SUMMARY.write_text(summary, encoding="utf-8")
     print(summary)
 
@@ -163,7 +163,9 @@ def load(kind: str) -> pd.DataFrame:
     """Load a train/eval parquet pair ("daily" | "hourly" | "recovered") into one frame with a
     `split` column ("train"/"eval") and parsed dates."""
     train_path, eval_path = _PAIRS[kind]
-    print(f"loading {kind} subset from {train_path} + {eval_path}")
+    # relative to the repo root: these lines land in committed notebooks, and an absolute
+    # user-home path is both noise and a detail of whose machine happened to run it
+    print(f"loading {kind} subset from {train_path.relative_to(config.ROOT).parent.as_posix()}")
     train = pd.read_parquet(train_path).assign(split="train")
     eval_ = pd.read_parquet(eval_path).assign(split="eval")
     combined = pd.concat([train, eval_], ignore_index=True)

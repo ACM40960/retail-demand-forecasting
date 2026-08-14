@@ -146,7 +146,7 @@ def recovery_impact(daily: pd.DataFrame, save: bool = True,
     board[("gap", "WAPE_%")] = ((board[("xgb_recovered", "WAPE")] / board[("xgb_raw", "WAPE")] - 1)
                                 * 100).round(2)
     if save:
-        config.OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
+        config.REPORTS_DIR.mkdir(parents=True, exist_ok=True)
         board.to_csv(config.RECOVERY_IMPACT)
     return board
 
@@ -163,6 +163,6 @@ def build_scorecard(daily: pd.DataFrame, save: bool = True) -> pd.DataFrame:
         train_file[dt <= pd.Timestamp(config.TRAIN_END)],
         train_file[dt.between(pd.Timestamp(config.VAL_START), pd.Timestamp(config.VAL_END))])
     if save:
-        config.OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
+        config.REPORTS_DIR.mkdir(parents=True, exist_ok=True)
         board.to_csv(config.BASELINE_SCORECARD)
     return board
