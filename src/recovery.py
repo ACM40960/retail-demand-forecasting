@@ -255,7 +255,7 @@ def compare_models(daily: pd.DataFrame, random_state: int = config.RANDOM_STATE,
         rows[name] = evaluate(daily, make_model=make, random_state=random_state)
     board = pd.DataFrame(rows).T.sort_values("wape")
     if save:
-        config.OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
+        config.REPORTS_DIR.mkdir(parents=True, exist_ok=True)
         board.to_csv(config.RECOVERY_COMPARISON)
     return board
 
@@ -325,15 +325,15 @@ def _save_recovered(recovered: pd.DataFrame) -> None:
 def bias_by_censoring(recovered: pd.DataFrame) -> pd.DataFrame:
     """Recorded vs recovered demand, split by how censored the day was.
 
-    `uplift_pct` grows down the table, which reads as the model adding demand only where trading
-    hours were missing. `uplift_pct_constant_fill` is the control that stops that being read as
+    `uplift_%` grows down the table, which reads as the model adding demand only where trading
+    hours were missing. `uplift_%_flat_fill` is the control that stops that being read as
     evidence: it replaces every stocked-out hour with ONE number - the average in-stock hour, no
     model, no features - and reproduces the same climb. The pattern is arithmetic (more missing
     hours, more filled in, on a smaller base), so it cannot tell two fillers apart. What the model
     has to beat is in `compare_models`; this table shows only WHERE the demand is added.
     """
     cens = recovered[recovered.is_censored == 1].copy()
-    cens["cens_bucket"] = pd.cut(
+    cens["censoring_band"] = pd.cut(
         cens["censoring_frac"], bins=[0, 0.25, 0.5, 0.75, 1.0], include_lowest=True,
         labels=["low (0-25%)", "med (25-50%)", "high (50-75%)", "severe (75-100%)"])
 
@@ -343,15 +343,18 @@ def bias_by_censoring(recovered: pd.DataFrame) -> pd.DataFrame:
     cens["constant_fill"] = cens["sale_amount"] + cens["stock_hour6_22_cnt"] * flat
 
     def summarise(d):
-        raw, rec = d["sale_amount"].sum(), d["recovered_demand"].sum()
-        return pd.Series({"n_days": len(d),
-                          "raw_mean": d["sale_amount"].mean(),
+        recorded, rec = d["sale_amount"].sum(), d["recovered_demand"].sum()
+        flat_fill = d["constant_fill"].sum()
+        model_uplift = (rec / recorded - 1) * 100
+        flat_uplift = (flat_fill / recorded - 1) * 100
+        return pd.Series({"days": len(d),
+                          "recorded_mean": d["sale_amount"].mean(),
                           "recovered_mean": d["recovered_demand"].mean(),
-                          "wpe_raw_vs_recovered": (raw - rec) / rec,
-                          "uplift_pct": (rec / raw - 1) * 100,
-                          "uplift_pct_constant_fill": (d["constant_fill"].sum() / raw - 1) * 100})
+                          "uplift_%": model_uplift,
+                          "uplift_%_flat_fill": flat_uplift,
+                          "model_vs_flat_%": model_uplift / flat_uplift * 100})
 
-    return cens.groupby("cens_bucket", observed=True).apply(summarise, include_groups=False)
+    return cens.groupby("censoring_band", observed=True).apply(summarise, include_groups=False)
 
 
 def correction_by_period(daily: pd.DataFrame, make_model=stage1_lgbm, n_days: int = N_TEST_DAYS,
@@ -382,20 +385,24 @@ def correction_by_period(daily: pd.DataFrame, make_model=stage1_lgbm, n_days: in
     board["shipped_is_off_by_%"] = (shipped / board["correction"] - 1) * 100
 
     if save:
-        config.OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
+        config.REPORTS_DIR.mkdir(parents=True, exist_ok=True)
         board.round(4).to_csv(config.CORRECTION_BY_PERIOD)
     return board.round(4)
 
 
-def population_wpe(recovered: pd.DataFrame) -> dict:
-    """Subset-wide bias, over all days and over censored days only."""
-    raw, rec = recovered["sale_amount"].sum(), recovered["recovered_demand"].sum()
+def how_much_was_hidden(recovered: pd.DataFrame) -> dict:
+    """How much demand the till never recorded, subset-wide - the size of the problem in one line.
+
+    Every figure is signed the same way as the rest of the project: POSITIVE means recovered demand
+    exceeds recorded sales, i.e. the till under-counted by that much - the same direction every other
+    signed figure in the project uses.
+    """
+    recorded, rec = recovered["sale_amount"].sum(), recovered["recovered_demand"].sum()
     cens = recovered[recovered.is_censored == 1]
-    raw_c, rec_c = cens["sale_amount"].sum(), cens["recovered_demand"].sum()
-    return dict(wpe_all_days=round((raw - rec) / rec, 4),
-                wpe_censored_days=round((raw_c - rec_c) / rec_c, 4),
-                uplift_pct_censored_days=round((rec_c / raw_c - 1) * 100, 2),
-                censored_day_share=round((recovered.is_censored == 1).mean(), 4))
+    rec_c, recd_c = cens["recovered_demand"].sum(), cens["sale_amount"].sum()
+    return dict(under_recorded_all_days_pct=round((rec / recorded - 1) * 100, 1),
+                under_recorded_censored_days_pct=round((rec_c / recd_c - 1) * 100, 1),
+                censored_day_share_pct=round((recovered.is_censored == 1).mean() * 100, 1))
 
 
 def hour_level_table(daily: pd.DataFrame, random_state: int = config.RANDOM_STATE,
@@ -426,6 +433,6 @@ def hour_level_table(daily: pd.DataFrame, random_state: int = config.RANDOM_STAT
     board = pd.DataFrame(rows).T.sort_values("wape")
     board.loc["all_zeros"] = dict(bias_scores(y_val, np.zeros_like(y_val)), fit_seconds=0.0)
     if save:
-        config.OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
+        config.REPORTS_DIR.mkdir(parents=True, exist_ok=True)
         board.to_csv(config.HOUR_LEVEL_TABLE)
     return board

@@ -8,7 +8,7 @@ Scoring uses the dataset's convention: per date, non-stockout rows only, against
 `sale_amount`. On those rows recorded sales ARE demand, so neither version is judged against the
 target it was trained on.
 
-    tuning = tune(daily, seeds=(1, 2, 3))             # rank configs by mean score over seeds
+    tuning = tune(daily)                              # rank configs on the validation window
     forecasts = run(daily, **best_params(tuning))     # train the winner, forecast, save
 """
 import itertools
@@ -26,7 +26,7 @@ from pytorch_forecasting.data import GroupNormalizer
 from pytorch_forecasting.metrics import QuantileLoss
 
 from . import recovery
-from .utils import config, data_io
+from .utils import config
 from .utils.features import CATEGORICAL, FEATURES
 from .utils.metrics import quantile_scores
 
@@ -59,24 +59,20 @@ def build_master_frame() -> pd.DataFrame:
     the stockout flag and `recovered_demand`, across every split (train/eval, i.e. including the
     test week) - not just the periods a given forecast run happened to save.
 
-    This is the one place that assembly happens, so `conformal.py` (and anything else that needs
-    ground truth next to a saved forecast) reads it from here rather than re-deriving it."""
-    return recovery.load_daily().merge(
-        data_io.load("recovered")[["store_id", "product_id", "dt", "recovered_demand"]],
-        on=["store_id", "product_id", "dt"], how="left")
+    One read, no merge. The recovered parquets are a strict superset of the raw daily ones - same
+    rows, same columns, plus `recovered_demand` - because `recovery._save_recovered` writes the
+    whole frame rather than just the new column. This used to load the raw daily file and merge the
+    recovered column onto it, which was both a redundant read and a REPRODUCIBILITY BUG: the raw
+    daily parquets are rebuildable and therefore gitignored, while the recovered ones are committed,
+    so from a fresh clone the merge failed on a file that was never shipped.
+    """
+    return recovery.load_daily("recovered")
 
-# 8 configs. Kept small on purpose: across TWO searches now, no setting has separated its top rows
-# by more than the seed spread (0.0033 pinball, measured). The 24-config run spanned 0.1021-0.1120
-# while refitting the WINNER moved it 0.0026; the 16-config run found exactly ONE effect that cleared
-# noise, and it was `weight_decay=1e-2` being catastrophic - all eight heavy-decay configs scored
-# 0.126-0.128 against 0.1025-0.1071 at 1e-4. Budget belongs on seeds, not configs.
-#
-#   weight_decay   REMOVED from the search. 1e-2 wrecks the model; 1e-4 - `train`'s default, and the
-#                  value both winners used - is fine. A dimension whose only measurable effect is
-#                  "do not turn it up" is settled, not open
-#   learning_rate  0.005 and 0.01 took the top two places in both searches
-#   dropout        0.2 beat 0.3 by 0.0017, inside noise, kept because it is nearly free
-#   encoder_days   7 won both times; 14 stays close enough to keep
+# 24 configs. Across three searches only `weight_decay` has moved the score materially, and it moves
+# monotonically (1e-4 > 1e-3 > 1e-2) - so the open question is whether something below 1e-4 is better
+# still. `encoder_days` moves non-monotonically and the rest barely move, so read the ranking as a
+# sweep rather than a precise selection.
+# `hidden_size` is fixed at 32 in `train`: 64 lost in most pairings.
 GRID = {
     "learning_rate": [0.005, 0.01],
     "dropout": [0.2, 0.3],
@@ -86,16 +82,30 @@ GRID = {
 
 
 class _EpochLine(pl.Callback):
-    """One line per epoch instead of a live progress bar. The bar redraws on every batch, which in a
-    notebook is an output update per batch - hundreds per epoch, and the single biggest cost of a
-    small model on a GPU. A printed line also survives being scrolled or saved."""
+    """One line per epoch instead of a live progress bar, and the epoch's losses kept in `history`.
+
+    The bar redraws on every batch, which in a notebook is an output update per batch - hundreds per
+    epoch, and the single biggest cost of a small model on a GPU. A printed line also survives being
+    scrolled or saved.
+
+    `history` exists because the Trainer runs with `logger=False`, so Lightning persists no metrics and
+    the printed lines were the only record - lost as soon as a cell was cleared. Collecting them here
+    keeps the learning curve available without turning on a logger and its per-run directories.
+    """
+
+    def __init__(self):
+        self.history = []
 
     def on_train_epoch_end(self, trainer, module):
-        def metric(key):
+        def value(key):
             v = trainer.callback_metrics.get(key)
-            return f"{float(v):.4f}" if v is not None else "n/a"
-        print(f"  epoch {trainer.current_epoch:>2}  train_loss={metric('train_loss_epoch')}  "
-              f"val_loss={metric('val_loss')}", flush=True)
+            return float(v) if v is not None else float("nan")
+
+        row = {"epoch": trainer.current_epoch,
+               "train_loss": value("train_loss_epoch"), "val_loss": value("val_loss")}
+        self.history.append(row)
+        print(f"  epoch {row['epoch']:>2}  train_loss={row['train_loss']:.4f}  "
+              f"val_loss={row['val_loss']:.4f}", flush=True)
 
 
 def _select_accelerator(accelerator: str) -> str:
@@ -174,17 +184,14 @@ def train(daily: pd.DataFrame, tag: str = "recovered", learning_rate: float = 0.
     and is never trained on. The best epoch is checkpointed and reloaded, so a run that overshoots
     still returns its best weights rather than its last.
 
-    `max_epochs` is a CEILING, not a target: `patience` usually stops the fit first. It is set well
-    below what the loss curve would tolerate, because of a known mismatch - `val_loss` is computed
-    over all validation rows INCLUDING censored days, while the scorecard scores non-stockout rows
-    only. Training long therefore optimises a target containing censored zeros and over-predicts the
-    clean days it is graded on. Raising the ceiling made every metric worse on an earlier subset.
-    The proper fix is a validation loss restricted to non-stockout rows, so the stopping rule and the
-    scorecard agree; until that exists, the ceiling is the guard.
+    `max_epochs` is a ceiling, not a target - `patience` usually stops first. It stays low because
+    `val_loss` covers all validation rows including censored days while the scorecard scores only
+    non-stockout ones, so training long optimises a target the scorecard does not measure. The proper
+    fix is a non-stockout validation loss; until then the ceiling is the guard.
 
     `batch_size` and `num_workers` default by device - this model is small enough that a GPU spends
     most of its time waiting for batches. Workers stay at 0 on Windows, where >0 deadlocks in
-    notebooks. `seed` varies the fit while holding data and settings constant.
+    notebooks. `seed` is fixed so a repeated fit reproduces, not so it can be varied.
     """
     _quiet_lightning()
     accel = _select_accelerator(accelerator)
@@ -222,6 +229,7 @@ def train(daily: pd.DataFrame, tag: str = "recovered", learning_rate: float = 0.
         loss=QuantileLoss(quantiles=QUANTILES), output_size=len(QUANTILES))
 
     loader = dict(num_workers=num_workers, persistent_workers=num_workers > 0)
+    epoch_line = _EpochLine()
     pl.Trainer(max_epochs=max_epochs, accelerator=accel, devices=1,
                gradient_clip_val=0.1, logger=False, enable_model_summary=False,
                enable_progress_bar=False,   # replaced by _EpochLine - see its docstring
@@ -232,10 +240,18 @@ def train(daily: pd.DataFrame, tag: str = "recovered", learning_rate: float = 0.
                # and resetting the counter. Overshooting costs only compute: ModelCheckpoint keeps the
                # best epoch and `train` reloads it.
                callbacks=[EarlyStopping(monitor="val_loss", patience=patience, min_delta=1e-3),
-                          ckpt, _EpochLine()]).fit(
+                          ckpt, epoch_line]).fit(
         model,
         train_dataloaders=training.to_dataloader(train=True, batch_size=batch_size, **loader),
         val_dataloaders=validation.to_dataloader(train=False, batch_size=batch_size * 2, **loader))
+
+    # Only the kept fit writes its curve. A tuning grid fits dozens of scratch models, and each would
+    # overwrite the file with a curve belonging to a config that was not chosen.
+    if save_checkpoint and epoch_line.history:
+        path = config.learning_curve_csv("tft", tag)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        pd.DataFrame(epoch_line.history).to_csv(path, index=False)
+        print(f"  learning curve -> {path.name}", flush=True)
 
     return TemporalFusionTransformer.load_from_checkpoint(ckpt.best_model_path), training
 
@@ -283,13 +299,12 @@ def _config_id(cfg: dict) -> str:
     return json.dumps({k: cfg[k] for k in sorted(GRID)}, sort_keys=True)
 
 
-def tune(daily: pd.DataFrame, tag: str = "recovered", seeds=(config.RANDOM_STATE,),
-         max_epochs: int = 15, **train_kwargs) -> pd.DataFrame:
+def tune(daily: pd.DataFrame, tag: str = "recovered", max_epochs: int = 15,
+         **train_kwargs) -> pd.DataFrame:
     """Score every config in `GRID` on the VALIDATION window; return the table, best first.
 
-    Each config is fitted once per seed and ranked on the MEAN. `pinball_spread` is the gap between
-    its best and worst seed - the noise floor. **A difference between configs smaller than that
-    spread is not a result**, which a single-seed search cannot tell you.
+    One fit per config, at the fixed `config.RANDOM_STATE` that `train` defaults to, so the same
+    grid returns the same ranking.
 
     Ranked by pinball(avg), not WAPE: the ordering stage consumes the whole q10/q50/q90 range, so
     the metric that scores the range should choose the model.
@@ -316,22 +331,18 @@ def tune(daily: pd.DataFrame, tag: str = "recovered", seeds=(config.RANDOM_STATE
     for i, cfg in enumerate(combos, 1):
         if _config_id(cfg) in done:
             continue
-        print(f"\n=== config {i}/{len(combos)}: {cfg} x {len(seeds)} seed(s) ===", flush=True)
-        runs = [quantile_scores(forecast_period(
-                    *train(daily, tag=tag, max_epochs=max_epochs, seed=s, save_checkpoint=False,
-                           **cfg, **train_kwargs),
-                    daily, config.VAL_START, config.VAL_END))
-                for s in seeds]
+        print(f"\n=== config {i}/{len(combos)}: {cfg} ===", flush=True)
+        scores = quantile_scores(forecast_period(
+            *train(daily, tag=tag, max_epochs=max_epochs, save_checkpoint=False,
+                   **cfg, **train_kwargs),
+            daily, config.VAL_START, config.VAL_END))
 
-        scores = pd.DataFrame(runs)
-        pinball = scores["pinball(avg)"]
-        row = {"config_id": _config_id(cfg), **cfg, **scores.mean().round(4).to_dict(),
-               "pinball_spread": round(pinball.max() - pinball.min(), 4), "n_seeds": len(seeds)}
-        print(f"    -> pinball(avg)={row['pinball(avg)']} (spread {row['pinball_spread']})  "
-              f"WAPE={row['WAPE']}", flush=True)
+        row = {"config_id": _config_id(cfg), **cfg,
+               **{k: round(v, 4) for k, v in scores.items()}}
+        print(f"    -> pinball(avg)={row['pinball(avg)']}  WAPE={row['WAPE']}", flush=True)
 
         rows.append(row)
-        config.OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
+        config.REPORTS_DIR.mkdir(parents=True, exist_ok=True)
         pd.DataFrame(rows).sort_values("pinball(avg)").to_csv(path, index=False)
 
     return pd.DataFrame(rows).sort_values("pinball(avg)").reset_index(drop=True)
@@ -350,8 +361,7 @@ def run(daily: pd.DataFrame, tag: str = "recovered", periods=("validation", "cal
 
     Pass the SAME params for both targets - the comparison must change only the target. `periods`
     defaults to excluding the test week - pass `periods=(..., "test")` explicitly to open it, and
-    only at the final evaluation (PLAN.md §5). `save=False` writes neither forecasts nor model,
-    for repeat fits that only measure spread.
+    only at the final evaluation. `save=False` writes neither forecasts nor model.
     """
     windows = {"validation": (config.VAL_START, config.VAL_END),
                "calibration": (config.CAL_START, config.CAL_END),
@@ -362,8 +372,10 @@ def run(daily: pd.DataFrame, tag: str = "recovered", periods=("validation", "cal
     for period in periods:
         out[period] = forecast_period(model, training, daily, *windows[period])
         if save:
-            config.OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
-            out[period].to_parquet(config.forecast_parquet(period, tag), index=False)
+            config.REPORTS_DIR.mkdir(parents=True, exist_ok=True)
+            path = config.forecast_parquet(period, tag)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            out[period].to_parquet(path, index=False)
 
     print(f"[{tag}] validation:", quantile_scores(out["validation"]))
     return out
@@ -385,7 +397,16 @@ def load(tag: str, daily: pd.DataFrame, encoder_days: int):
     if not ckpt.exists():
         raise FileNotFoundError(f"{ckpt.name} missing - run forecast.run(..., tag='{tag}') first.")
     training = _dataset(_prepare(daily), TARGETS[tag], encoder_days)
-    model = TemporalFusionTransformer.load_from_checkpoint(ckpt)
+    # `map_location` pins the WEIGHTS to this machine's device. It is not by itself sufficient: a
+    # checkpoint also pickles `loss` and `logging_metrics` into `hyper_parameters`, and torchmetrics
+    # objects store their own `_device`. Fit on an Apple GPU, those come back tagged `mps:0`, and
+    # Lightning's `.to()` walks into `Metric._apply`, which builds `torch.zeros(1, device=self._device)`
+    # BEFORE moving anything - so any machine without an MPS backend dies with
+    # `NotImplementedError: Could not run 'aten::empty.memory_format' ... 'MPS' backend`.
+    # The committed checkpoints have had those attributes normalised to CPU (weights untouched and
+    # verified identical); this argument keeps a freshly-fit one portable too.
+    model = TemporalFusionTransformer.load_from_checkpoint(
+        ckpt, map_location=torch.device(_select_accelerator("auto").replace("gpu", "cuda")))
     return model, training
 
 
@@ -404,6 +425,6 @@ def forecast_test(daily: pd.DataFrame, tag: str = "recovered", save: bool = True
     model, training = load(tag, daily, encoder_days)
     fc = forecast_period(model, training, daily, config.TEST_START, config.TEST_END)
     if save:
-        config.OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
+        config.REPORTS_DIR.mkdir(parents=True, exist_ok=True)
         fc.to_parquet(config.forecast_parquet("test", tag), index=False)
     return fc

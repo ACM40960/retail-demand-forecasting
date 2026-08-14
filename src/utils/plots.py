@@ -41,39 +41,100 @@ def plot_recovery_example(recovered: pd.DataFrame, save_path=None):
     return fig
 
 
-def plot_cost_sweep(sweep: pd.DataFrame, waste_target: float = None, stockout_target: float = None,
-                    save_path=None):
-    """Phase 6's business-KPI chart: waste reduction and stockout rate across the whole
-    `c_u/c_o` cost sweep (`orders.cost_sweep`), ours vs. naive, x-axis the newsvendor fractile
-    `q_star` a ratio implies - not the ratio itself, which is not on a comparable scale across
-    rows. Both figures report PERCENTAGES/RATES only (never an absolute unit count - README §4:
-    `sale_amount` is a normalized value, so summed waste/shortfall are relative, not physical
-    quantities)."""
+def plot_cost_sweep(sweep: pd.DataFrame, save_path=None):
+    """The ordering stage's business chart: waste and stockouts across the whole `c_u/c_o` cost
+    sweep (`orders.cost_sweep`), model vs. naive, x-axis the newsvendor fractile `q_star` a ratio
+    implies - not the ratio itself, which is not on a comparable scale across rows. Both figures
+    report PERCENTAGES only, never an absolute unit count: `sale_amount` is normalised by an
+    undisclosed coefficient (README §4), so summed waste and shortfall are relative quantities,
+    not physical ones."""
     sweep = sweep.sort_values("q_star")
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 4.5))
 
-    ax1.plot(sweep["q_star"], sweep["waste_reduction_pct"], marker="o", color="tab:blue",
-             label="ours vs. naive")
+    ax1.plot(sweep["q_star"], sweep["waste_vs_naive_pct"], marker="o", color="tab:blue",
+             label="model vs. naive")
     ax1.axhline(0, color="grey", linewidth=0.8)
-    if waste_target is not None:
-        ax1.axhline(waste_target, color="tab:green", linestyle="--", linewidth=1,
-                    label=f"target ({waste_target:.0f}%)")
     ax1.set_xlabel("q* (newsvendor fractile)")
-    ax1.set_ylabel("waste reduction vs. naive (%)")
-    ax1.set_title("Waste reduction across the cost sweep")
+    ax1.set_ylabel("waste vs. naive (%)")
+    ax1.set_title("Waste across the cost sweep")
     ax1.legend(loc="best")
 
-    ax2.plot(sweep["q_star"], sweep["stockout_rate_ours"], marker="o", color="tab:blue",
-             label="ours")
-    ax2.plot(sweep["q_star"], sweep["stockout_rate_naive"], marker="o", color="tab:red",
+    ax2.plot(sweep["q_star"], sweep["stockout_pct_model"], marker="o", color="tab:blue",
+             label="model")
+    ax2.plot(sweep["q_star"], sweep["stockout_pct_naive"], marker="o", color="tab:red",
              linestyle=":", label="naive")
-    if stockout_target is not None:
-        ax2.axhline(stockout_target, color="tab:green", linestyle="--", linewidth=1,
-                    label=f"target ({stockout_target:.0%})")
     ax2.set_xlabel("q* (newsvendor fractile)")
-    ax2.set_ylabel("stockout rate")
-    ax2.set_title("Stockout rate across the cost sweep")
+    ax2.set_ylabel("stockouts (%)")
+    ax2.set_title("Stockouts across the cost sweep")
     ax2.legend(loc="best")
+
+    fig.tight_layout()
+    plt.close(fig)
+    if save_path is not None:
+        fig.savefig(save_path, dpi=110)
+    return fig
+
+
+# Column names differ per family because each writes what its own trainer reports: XGBoost counts
+# boosting rounds, Lightning counts epochs. Normalised here rather than at write time so each saved
+# curve stays a faithful record of what its trainer produced.
+_CURVE_COLS = {"xgb": ("round", "train", "validation", "boosting round"),
+               "tft": ("epoch", "train_loss", "val_loss", "epoch")}
+
+
+def plot_learning_curves(curves: dict, save_path=None):
+    """Train-vs-validation loss per family, ONE PANEL EACH, with the validation minimum marked.
+
+    `curves` maps a family in `_CURVE_COLS` to its saved curve frame; families whose file does not
+    exist yet are simply left out, so this renders with one panel or two.
+
+    Deliberately NOT one shared pair of axes. The x-axes count different things (boosting rounds
+    against epochs) and each y is that family's own loss implementation over its own quantile set, so a
+    single plot would invite reading a vertical gap between two curves as a difference in accuracy when
+    it is a difference in units. Separate panels, and the y-labels say so.
+
+    The marked minimum is the whole point of the figure: everything left of it is the model still
+    learning, everything right of it is the model memorising. Where the CHOSEN config sits relative to
+    that mark is the overfitting question, answered by looking.
+    """
+    have = [(fam, curves[fam]) for fam in _CURVE_COLS if fam in curves and curves[fam] is not None]
+    if not have:
+        raise ValueError(f"no curves given - expected any of {list(_CURVE_COLS)}")
+
+    fig, axes = plt.subplots(1, len(have), figsize=(6.5 * len(have), 4.5), squeeze=False)
+    for ax, (fam, curve) in zip(axes[0], have):
+        x, train_col, val_col, xlabel = _CURVE_COLS[fam]
+        best = curve.loc[curve[val_col].idxmin()]
+
+        ax.plot(curve[x], curve[train_col], color="tab:blue", linewidth=2, label="training")
+        ax.plot(curve[x], curve[val_col], color="tab:red", linewidth=2, label="validation")
+        ax.axvline(best[x], color="grey", linestyle="--", linewidth=1)
+        # Annotate only the minimum. A label on every point is unreadable and the shape carries the
+        # rest of the story on its own.
+        ax.annotate(f"validation best\n{xlabel} {int(best[x])} · {best[val_col]:.4f}",
+                    xy=(best[x], best[val_col]), xytext=(0.30, 0.70), textcoords="axes fraction",
+                    fontsize=9, color="dimgrey",
+                    arrowprops=dict(arrowstyle="-", color="grey", linewidth=0.8))
+
+        # The turn upward is the finding, and on the full y-range it is invisible - a rise of ~0.001 on
+        # an axis spanning 0.15 reads as a flat line. The inset is that region at a scale where the U
+        # is legible; without it the figure appears to show a model that simply converges.
+        tail = curve[curve[x] >= best[x] * 0.35]
+        if len(tail) > 5 and tail[val_col].max() - tail[val_col].min() > 0:
+            zoom = ax.inset_axes([0.53, 0.13, 0.44, 0.36])
+            zoom.plot(tail[x], tail[val_col], color="tab:red", linewidth=1.6)
+            zoom.axvline(best[x], color="grey", linestyle="--", linewidth=0.9)
+            zoom.set_title("validation, zoomed", fontsize=8, color="dimgrey")
+            zoom.tick_params(labelsize=7, colors="dimgrey")
+            zoom.grid(alpha=0.2, linewidth=0.5)
+            zoom.set_axisbelow(True)
+
+        ax.set_xlabel(xlabel)
+        ax.set_ylabel(f"{fam.upper()} quantile loss (own scale)")
+        ax.set_title(f"{fam.upper()}: training vs validation loss")
+        ax.grid(alpha=0.25, linewidth=0.6)
+        ax.set_axisbelow(True)
+        ax.legend(loc="best")
 
     fig.tight_layout()
     plt.close(fig)
