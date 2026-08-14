@@ -241,7 +241,8 @@ def best_params(tuning: pd.DataFrame) -> dict:
 
 
 def run(daily: pd.DataFrame, tag: str = "recovered",
-        periods=("validation", "calibration"), save: bool = True, **fit_kwargs) -> dict:
+        periods=("validation", "calibration"), save: bool = True, curve: bool = True,
+        **fit_kwargs) -> dict:
     """Fit on one target and return `{period: forecast frame}`, saving each.
 
     Pass the SAME params for both targets - the raw-vs-recovered comparison must change only the
@@ -252,11 +253,44 @@ def run(daily: pd.DataFrame, tag: str = "recovered",
 
     `periods` excludes the test week by default; pass `periods=(..., "test")` to open it, and only at
     the final evaluation.
+
+    `curve` records the per-round learning curve from THIS fit and writes it beside the reports. It
+    is the same measurement `learning_curve` makes, taken as a by-product instead of as a second fit:
+    the only extra cost is one prediction per round over rows already in hand, where a standalone
+    call pays for a whole additional model. The curve ends at this config's own `n_estimators`, which
+    is enough - validation loss bottoms at round 290 and the tuned winner runs 430, so the turning
+    point is already inside the fitted range. `learning_curve` remains the way to look PAST the
+    chosen round count, which is the one thing this cannot show.
     """
     train_df = daily[daily["period"] == "training"]
     tr = _train_rows(train_df, TARGETS[tag])
     model = _model(**fit_kwargs)
-    model.fit(tr[BASELINE_FEATS], tr[TARGETS[tag]])
+
+    # Both sides scored against the TRAINING signal (`TARGETS[tag]`) on all rows, which is NOT what
+    # the scorecard measures - it scores recorded `sale_amount` on non-stockout rows only. The level
+    # here is therefore not comparable to `pinball(avg)`; read the shape.
+    eval_set = None
+    if curve:
+        ev_curve = add_history_features(train_df, daily[daily["period"] == "validation"],
+                                        source=TARGETS[tag]).dropna(subset=[TARGETS[tag]])
+        eval_set = [(tr[BASELINE_FEATS], tr[TARGETS[tag]]),
+                    (ev_curve[BASELINE_FEATS].fillna(0), ev_curve[TARGETS[tag]])]
+    model.fit(tr[BASELINE_FEATS], tr[TARGETS[tag]], eval_set=eval_set, verbose=False)
+
+    if curve:
+        hist = model.evals_result()
+        rounds = len(hist["validation_0"]["quantile"])
+        cur = pd.DataFrame({"round": np.arange(1, rounds + 1),
+                            "train": hist["validation_0"]["quantile"],
+                            "validation": hist["validation_1"]["quantile"]})
+        cur["gap"] = cur["validation"] - cur["train"]
+        if save:
+            path = config.learning_curve_csv("xgb", tag)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            cur.to_csv(path, index=False)
+        turn = int(cur.loc[cur["validation"].idxmin(), "round"])
+        print(f"[xgb {tag}] curve: {rounds} rounds, validation bottoms at {turn} "
+              f"({cur['validation'].min():.5f}), gap at the end {cur['gap'].iloc[-1]:.5f}", flush=True)
 
     out = {}
     for period in periods:

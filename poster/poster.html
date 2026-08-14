@@ -1,0 +1,1187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Perishable Demand Forecasting &amp; Zero-Waste Inventory Engine</title>
+
+<style>
+  :root{
+    --color-one:#2f5d56;
+    --color-one-8:#2f5d5614;
+    --color-three:#1baf7a;
+    --color-three-8:#1baf7a1f;
+    --ink-primary:#0b0b0b;
+    --ink-secondary:#52514e;
+    --ink-muted:#898781;
+
+    /* EXACT A0 PORTRAIT */
+    --page-w:841mm;
+    --page-h:1189mm;
+  }
+
+  /* =========================================================
+     A0 PAGE
+     ========================================================= */
+/* =========================================================
+   A0 PAGE — EXACT SIZE
+   ========================================================= */
+
+@page {
+  size: 841mm 1189mm;
+  margin: 0;
+}
+
+:root {
+  --color-one:#2f5d56;
+  --color-one-8:#2f5d5614;
+  --color-three:#1baf7a;
+
+  --ink-primary:#0b0b0b;
+  --ink-secondary:#52514e;
+  --ink-muted:#898781;
+
+  --page-w:841mm;
+  --page-h:1189mm;
+}
+
+* {
+  box-sizing:border-box;
+}
+
+html,
+body {
+  margin:0;
+  padding:0;
+
+  width:100%;
+  min-height:100%;
+
+  background:#dcdcdc;
+
+  font-family:"Segoe UI","Helvetica Neue",Arial,sans-serif;
+  color:var(--ink-primary);
+
+  -webkit-print-color-adjust:exact;
+  print-color-adjust:exact;
+}
+
+body {
+  display:flex;
+  justify-content:center;
+  align-items:flex-start;
+}
+
+
+/* =========================================================
+   POSTER
+   ========================================================= */
+
+.poster {
+  width:841mm;
+  height:1189mm;
+
+  margin:10mm auto;
+
+  background:#fff;
+
+  padding:14mm 16mm;
+
+  display:flex;
+  flex-direction:column;
+
+  overflow:hidden;
+
+  box-shadow:0 0 20mm rgba(0,0,0,.25);
+
+  -webkit-print-color-adjust:exact;
+  print-color-adjust:exact;
+}
+
+
+/* =========================================================
+   TITLE
+   ========================================================= */
+
+.banner {
+  position:relative;
+  flex:0 0 auto;
+
+  background:var(--color-one);
+  color:#fff;
+
+  padding:0;
+  overflow:hidden;
+
+  border-radius:3mm;
+
+  margin-bottom:8mm;
+
+  -webkit-print-color-adjust:exact;
+  print-color-adjust:exact;
+}
+
+.banner-mark,
+.banner-qr {
+  position:absolute;
+  top:0;
+
+  width:55mm;
+  height:55mm;
+
+  background:#fff;
+
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+
+  padding:3mm;
+}
+
+.banner-mark { left:0; }
+.banner-qr   { right:0; }
+
+.banner-mark img,
+.banner-qr img {
+  max-width:100%;
+  max-height:100%;
+  object-fit:contain;
+}
+
+.banner-qr .qr-caption {
+  margin-top:1.5mm;
+
+  font-size:9pt;
+  line-height:1.15;
+  text-align:center;
+  color:var(--ink-secondary);
+}
+
+.banner-text {
+  padding:10mm 62mm;
+}
+
+.banner h1 {
+  margin:0 0 5mm 0;
+
+  font-size:86pt;
+  line-height:1.05;
+  font-weight:700;
+}
+
+.banner .authors {
+  margin:0 0 2mm 0;
+
+  font-size:32pt;
+  line-height:1.2;
+}
+
+.banner .institute {
+  margin:0;
+
+  font-size:25pt;
+  line-height:1.2;
+
+  opacity:.94;
+}
+
+
+/* =========================================================
+   MAIN AREA
+   ========================================================= */
+
+.columns {
+    flex:1 1 auto;
+    min-height:0;
+    display:flex;
+    gap:7mm;
+    align-items:flex-start; /* was stretch */
+  }
+
+  .col-27 {
+    flex:0 0 calc(27% - 4.5mm);
+    min-width:0;
+    min-height:0;
+    display:flex;
+    flex-direction:column;
+    gap:6mm;
+    justify-content:flex-start;
+  }
+  .col-46 {
+    flex:0 0 calc(46% - 4.5mm);
+    min-width:0;
+    min-height:0;
+    display:flex;
+    flex-direction:column;
+    gap:6mm;
+    justify-content:flex-start;
+  }
+
+  .card {
+    border:1.4pt solid var(--color-one);
+    border-radius:3.5mm;
+    overflow:hidden;
+    background:#fff;
+
+    /* changed: stop equal-height stretching */
+    flex:0 0 auto;
+    min-height:0;
+
+    display:flex;
+    flex-direction:column;
+
+    -webkit-print-color-adjust:exact;
+    print-color-adjust:exact;
+  }
+
+.card__title {
+  flex:0 0 auto;
+
+  background:var(--color-one);
+  color:#fff;
+
+  font-weight:700;
+
+  font-size:35pt;
+  line-height:1.15;
+
+  padding:3mm 5mm;
+
+  -webkit-print-color-adjust:exact;
+  print-color-adjust:exact;
+}
+
+.card__body {
+    flex:1 1 auto;
+    min-height:0;
+    padding:5mm 6mm 6mm 6mm;
+
+    /* slightly larger reading size */
+    font-size:27pt;   /* was 25pt */
+    line-height:1.35; /* was 1.32 */
+  }
+
+  .headline {
+    display:block;
+    font-weight:700;
+    font-size:31pt;   /* was 29pt */
+    line-height:1.24;
+    margin-bottom:4mm;
+  }
+
+
+/* =========================================================
+   LISTS
+   ========================================================= */
+
+.card__body ul {
+  margin:0;
+  padding-left:7mm;
+}
+
+.card__body li {
+  margin-bottom:3.2mm;
+  padding-left:1.5mm;
+}
+
+.card__body li::marker {
+  color:var(--color-one);
+}
+
+
+/* =========================================================
+   IMAGES / CHARTS
+   ========================================================= */
+
+.card__body img {
+  display:block;
+
+  width:100%;
+  max-width:100%;
+
+  height:auto;
+
+  margin:4mm auto;
+
+  border-radius:1.5mm;
+
+  object-fit:contain;
+
+  break-inside:avoid;
+  page-break-inside:avoid;
+}
+
+
+/*
+  Give the charts substantially more visual weight.
+*/
+.col-46 .card__body img {
+  width:98%;
+}
+
+.col-46 .card__body img.chart-sm {
+  width:66%;
+}
+
+.check-table {
+  display:grid;
+  grid-template-columns:1.3fr 1fr 1fr 1fr 1fr;
+
+  margin:3mm 0;
+
+  font-size:19pt;
+}
+
+.check-table .ct-cell {
+  border:1pt solid var(--color-one);
+  margin:-0.5pt;
+  padding:1.8mm 3mm;
+  text-align:center;
+}
+
+.check-table .ct-head {
+  background:var(--color-one);
+  color:#fff;
+  font-weight:700;
+
+  -webkit-print-color-adjust:exact;
+  print-color-adjust:exact;
+}
+
+.check-table .ct-label {
+  text-align:left;
+  font-weight:700;
+}
+
+.check-table .worse {
+  color:#c0392b;
+  font-weight:700;
+}
+
+.check-table .better {
+  color:#0ca30c;
+  font-weight:700;
+}
+
+.col-27 .card__body img {
+  width:98%;
+}
+
+
+/* =========================================================
+   SOURCES
+   ========================================================= */
+
+.source {
+  display:block;
+
+  font-size:18pt;
+
+  color:var(--ink-muted);
+
+  margin-top:3mm;
+
+  line-height:1.25;
+}
+
+.source code {
+  font-family:"Consolas","Courier New",monospace;
+  font-size:.95em;
+}
+
+
+/* =========================================================
+   FRACTIONS
+   ========================================================= */
+
+sub,
+sup {
+  font-size:.68em;
+}
+
+.frac {
+  display:inline-flex;
+
+  flex-direction:column;
+
+  vertical-align:middle;
+
+  text-align:center;
+
+  line-height:1.05;
+
+  margin:0 1mm;
+
+  font-size:.92em;
+}
+
+.frac .num {
+  padding:0 1mm .5mm 1mm;
+}
+
+.frac .den {
+  padding:.5mm 1mm 0 1mm;
+
+  border-top:1.4pt solid var(--ink-primary);
+}
+
+
+/* =========================================================
+   PIPELINE FLOWCHART
+   ========================================================= */
+
+.flow {
+  display:flex;
+  flex-direction:column;
+
+  gap:2mm;
+
+  margin:4mm 0 1.5mm 0;
+}
+
+.flow-step {
+  display:flex;
+  align-items:stretch;
+  gap:3mm;
+}
+
+.flow-num {
+  flex:0 0 auto;
+
+  width:11mm;
+  height:11mm;
+  margin-top:0.5mm;
+
+  border-radius:50%;
+
+  background:var(--color-one);
+  color:#fff;
+
+  display:flex;
+  align-items:center;
+  justify-content:center;
+
+  font-weight:700;
+  font-size:17pt;
+
+  -webkit-print-color-adjust:exact;
+  print-color-adjust:exact;
+}
+
+.flow-box {
+  flex:1 1 auto;
+  min-width:0;
+
+  border:1.4pt solid var(--color-one);
+  border-radius:2.5mm;
+  background:var(--color-one-8);
+
+  padding:2.6mm 4mm;
+
+  -webkit-print-color-adjust:exact;
+  print-color-adjust:exact;
+}
+
+.flow-box strong {
+  font-size:21pt;
+}
+
+.flow-box small {
+  font-size:14.5pt;
+  color:var(--ink-secondary);
+}
+
+.flow-box p {
+  margin:1.3mm 0 0 0;
+
+  font-size:15.5pt;
+  line-height:1.25;
+}
+
+.flow-arrow {
+  margin-left:4mm;
+
+  color:var(--color-one);
+  font-weight:700;
+  font-size:19pt;
+  line-height:1;
+}
+
+.flow-box--accent {
+  background:var(--color-three-8);
+  border-color:var(--color-three);
+}
+
+.flow-num--accent {
+  background:var(--color-three);
+}
+
+.flow-side {
+  margin:0 0 0 14mm;
+
+  padding:2mm 3.5mm;
+
+  border:1.2pt dashed var(--color-one);
+  border-radius:2.5mm;
+  background:#fff;
+
+  font-size:13.5pt;
+  line-height:1.3;
+  color:var(--ink-secondary);
+}
+
+.flow-side strong {
+  color:var(--ink-primary);
+}
+
+.flow-side-arrow {
+  margin-right:1.5mm;
+
+  color:var(--color-one);
+  font-weight:700;
+}
+
+.impl-note {
+  margin-top:3mm;
+
+  padding:3mm 4mm;
+
+  background:var(--color-one-8);
+  border-radius:2mm;
+
+  font-size:14.5pt;
+  line-height:1.35;
+  color:var(--ink-secondary);
+}
+
+.impl-note strong {
+  color:var(--ink-primary);
+}
+
+/* =========================================================
+   TAG / CALLOUT
+   ========================================================= */
+
+.tag {
+  display:block;
+  margin-top:4mm;
+
+  background:var(--color-one);
+  color:#fff;
+
+  border-radius:2.5mm;
+
+  padding:3mm 5mm;
+
+  font-weight:700;
+  font-size:22pt;
+  line-height:1.3;
+
+  -webkit-print-color-adjust:exact;
+  print-color-adjust:exact;
+}
+
+.tag em {
+  font-style:italic;
+  font-weight:400;
+}
+
+
+/* =========================================================
+   REFERENCES
+   ========================================================= */
+
+
+.references ul {
+  margin:0;
+  padding-left:6mm;
+
+  font-size:16.5pt;
+  line-height:1.32;
+}
+
+.references li {
+  margin-bottom:2.2mm;
+}
+
+.references li::marker {
+  color:var(--color-one);
+}
+
+
+/* =========================================================
+   PRINT — DO NOT SHRINK THE POSTER
+   ========================================================= */
+
+@media print {
+    html,
+    body {
+      width:841mm;
+      height:1189mm;
+      min-width:841mm;
+      min-height:1189mm;
+      margin:0;
+      padding:0;
+      background:#fff;
+      -webkit-print-color-adjust:exact;
+      print-color-adjust:exact;
+    }
+
+    body {
+      display:block;
+    }
+.poster {
+      width:841mm;
+      height:1189mm;
+      min-width:841mm;
+      min-height:1189mm;
+      max-width:841mm;
+      max-height:1189mm;
+      margin:0;
+
+      /* keep same padding as screen to avoid reflow mismatches */
+      padding:14mm 16mm; /* was 12mm 14mm */
+
+      box-shadow:none;
+      overflow:hidden;
+      -webkit-print-color-adjust:exact;
+      print-color-adjust:exact;
+  }
+
+  .banner,
+  .card__title,
+  .flow-box,
+  .tag {
+    -webkit-print-color-adjust:exact;
+    print-color-adjust:exact;
+  }
+
+  .card,
+  .banner,
+  .flow-step,
+  img {
+    break-inside:avoid;
+    page-break-inside:avoid;
+  }
+}
+
+</style>
+</head>
+
+<body>
+
+<div class="poster">
+
+  <!-- =======================================================
+       TITLE
+       ======================================================= -->
+
+  <div class="banner">
+
+    <div class="banner-mark">
+      <img src="images/UCDLogo.jpeg" alt="University College Dublin logo">
+    </div>
+
+    <div class="banner-text">
+      <h1>Perishable Demand Forecasting &amp; Zero-Waste Inventory Engine</h1>
+
+      <p class="authors">
+        Kavitha Pasupathy (25210682), &nbsp;
+        Madan Sendil (25203358)
+      </p>
+
+      <p class="institute">
+        ACM40960 Projects in Maths Modelling
+        &nbsp;&middot;&nbsp;
+        University College Dublin
+      </p>
+    </div>
+
+    <div class="banner-qr">
+      <img src="images/qr_code.png" alt="QR code to project repository">
+      <span class="qr-caption">Code &amp; full report</span>
+    </div>
+
+  </div>
+
+
+  <!-- =======================================================
+       MAIN CONTENT
+       ======================================================= -->
+
+  <div class="columns">
+
+    <!-- ================= COLUMN 1 ================= -->
+
+    <div class="col-27">
+
+      <div class="card">
+        <div class="card__title">1. Objective</div>
+
+        <div class="card__body">
+
+          <span class="headline">
+            Recover the demand that stockouts hide, and turn it into a better order
+            &mdash; not just a better forecast.
+          </span>
+
+          <ul>
+            <li>
+              A stockout records zero sales, not zero demand &mdash; so a
+              forecast trained on raw sales keeps under-ordering exactly the
+              products that sell out.
+            </li>
+
+            <li>
+              Recover the hidden demand &rarr; forecast it as a range
+              &rarr; convert the range into an order.
+            </li>
+          </ul>
+
+          <span class="tag">
+            Success: cheaper than
+            <em>&ldquo;order what sold last week&rdquo;</em>
+            at every plausible cost ratio.
+          </span>
+
+        </div>
+      </div>
+
+
+      <div class="card">
+        <div class="card__title">2. Data</div>
+
+        <div class="card__body">
+
+          <span class="headline">
+            Subset of FreshRetailNet-50K &mdash; 100 stores,
+            5,601 series, 43.8% of product-days partially stocked out.
+          </span>
+
+          <ul>
+            <li>
+              Dingdong Inc., via Hugging Face &mdash; 100 of 898 stores,
+              a seeded whole-store draw with no volume bias, 11.2% of the corpus.
+            </li>
+
+            <li>
+              Frozen calendar: train (62d) &rarr; validate (14d) &rarr;
+              calibrate (14d) &rarr; <strong>sealed test (opened once)</strong>.
+            </li>
+
+            <li>
+              What makes this solvable: hour-level stockout flags, so a
+              censored zero is distinguishable from a genuine no-sale.
+            </li>
+          </ul>
+
+          <img
+            src="images/stockout_timing.png"
+            alt="Bar chart: share of stockout-days by the hour the shelf first goes empty, 06:00 to 21:00"
+          >
+
+          <span class="source">
+            <strong>Once out, it stays out</strong>: 87.4% never restock
+            before closing (13.4% already empty at opening) &mdash; why
+            Stage 2 just carries the predicted rate forward, rather than
+            modelling a same-day return.
+          </span>
+
+        </div>
+      </div>
+
+
+      <div class="card">
+        <div class="card__title">3. Approach &amp; Workflow</div>
+
+        <div class="card__body">
+
+          <span class="headline">
+            From raw sales to a stocking decision &mdash; one pipeline,
+            start to finish.
+          </span>
+
+          <div class="flow">
+
+            <div class="flow-step">
+              <div class="flow-num">1</div>
+              <div class="flow-box">
+                <strong>Ingest &amp; Subset</strong> &nbsp;<small>seeded draw</small>
+                <p>100 seeded stores, 5,601 series, frozen calendar.</p>
+              </div>
+            </div>
+
+            <div class="flow-side">
+              <span class="flow-side-arrow">&#8618;</span>
+              <strong>Baselines</strong> &mdash; naive &middot; SARIMA &middot;
+              XGB-quantile, on raw sales: the bar every arm has to clear.
+            </div>
+
+            <div class="flow-arrow">&darr;</div>
+
+            <div class="flow-step">
+              <div class="flow-num">2</div>
+              <div class="flow-box">
+                <strong>Recover &middot; Stage 1</strong> &nbsp;<small>LightGBM, Tweedie</small>
+                <p>Predicts hourly in-stock demand rate, non-stockout hours only.</p>
+              </div>
+            </div>
+
+            <div class="flow-arrow">&darr;</div>
+
+            <div class="flow-step">
+              <div class="flow-num">3</div>
+              <div class="flow-box">
+                <strong>Recover &middot; Stage 2</strong> &nbsp;<small>fill + correct</small>
+                <p>Fills stocked-out hours only, floored at observed, corrected &times;0.900.</p>
+              </div>
+            </div>
+
+            <div class="flow-arrow">&darr;</div>
+
+            <div class="flow-step">
+              <div class="flow-num flow-num--accent">4</div>
+              <div class="flow-box flow-box--accent">
+                <strong>Forecast</strong> &nbsp;<small>TFT + XGBoost, 6 quantiles</small>
+                <p>Raw &amp; recovered demand &mdash; 4 arms, each grid-tuned.</p>
+              </div>
+            </div>
+
+            <div class="flow-arrow">&darr;</div>
+
+            <div class="flow-step">
+              <div class="flow-num">5</div>
+              <div class="flow-box">
+                <strong>Calibrate</strong> &nbsp;<small>split-CQR</small>
+                <p>Widens bands to ~80% coverage &mdash; checked via day-block bootstrap CI.</p>
+              </div>
+            </div>
+
+            <div class="flow-arrow">&darr;</div>
+
+            <div class="flow-step">
+              <div class="flow-num">6</div>
+              <div class="flow-box">
+                <strong>Order</strong> &nbsp;<small>newsvendor</small>
+                <p>Reads q<sup>*</sup>=c<sub>u</sub>/(c<sub>u</sub>+c<sub>o</sub>) off the forecast;
+                compared raw vs. recovered, 4 arms.</p>
+              </div>
+            </div>
+
+            <div class="flow-arrow">&darr;</div>
+
+            <div class="flow-step">
+              <div class="flow-num">7</div>
+              <div class="flow-box">
+                <strong>Evaluate</strong> &nbsp;<small>cost sweep</small>
+                <p>9 cost ratios vs. naive, on the sealed test week.</p>
+              </div>
+            </div>
+
+          </div>
+
+          <div class="impl-note">
+            <strong>Implementation:</strong> six quantiles fit jointly regularize
+            rather than dilute &mdash; q<sub>0.8</sub> pinball 0.1334&rarr;0.1327
+            vs. a 2-quantile fit.
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+
+
+    <!-- ================= COLUMN 2 ================= -->
+
+    <div class="col-46">
+
+      <div class="card">
+        <div class="card__title">4. Stage-wise Results</div>
+
+        <div class="card__body">
+
+          <ul>
+
+            <li>
+              <strong>Recovery works</strong>:
+              WAPE 0.2966 vs. 0.3684 for a naive baseline &mdash; 19.5% lower
+              error, measured on held-out full-shelf (clean) days &mdash;
+              the only days true demand is actually known.
+            </li>
+
+            <li>
+              <strong>Fixes the forecast where censoring bites</strong>:
+              on chronic-stockout products (n=1,375), WAPE improves ~23%;
+              bias corrected from &minus;20% to near zero.
+            </li>
+
+            <li>
+              <strong>The bands are honest</strong>: 80% band coverage lands
+              at 79&ndash;83%, in validation and on the
+              <strong>sealed test week</strong> alike.
+            </li>
+
+          </ul>
+
+          <span class="headline" style="margin-top:3mm;">
+            At matched 95% demand met, recovered wastes less than raw in both
+            model families &mdash; and the gap widens sharply out of sample.
+          </span>
+
+          <img
+            src="images/waste_comparison.png"
+            alt="Grouped bar chart: food wasted at 95% demand met, raw vs. recovered, for TFT and XGBoost, validation and test windows"
+          >
+
+          <span class="source">
+            Both model families, validation and the sealed test week.
+          </span>
+
+          <ul>
+            <li>
+              <strong>Why waste actually drops</strong>: raw must be pushed
+              to a high percentile (~79th&ndash;95th) to offset its own
+              downward bias; recovered needs only ~68th&ndash;92nd. Less
+              padding, less waste.
+            </li>
+          </ul>
+
+        </div>
+      </div>
+
+
+      <div class="card">
+        <div class="card__title">5. Final Ordering Decision</div>
+
+        <div class="card__body">
+
+          <span class="headline">
+            Order the q<sup>*</sup>-th percentile of the calibrated,
+            recovered forecast.
+          </span>
+
+          <ul>
+            <li>
+              Rule:
+              order = F<sup>&minus;1</sup>(q<sup>*</sup>),
+              &nbsp;
+              q<sup>*</sup> =
+              <span class="frac">
+                <span class="num">c<sub>u</sub></span>
+                <span class="den">c<sub>u</sub>+c<sub>o</sub></span>
+              </span>.
+            </li>
+          </ul>
+
+          <span class="tag">
+            34.7% cheaper than &ldquo;order what sold last week&rdquo;
+            &mdash; recovered TFT, at c<sub>u</sub>/c<sub>o</sub>=4
+            (sealed test week: 28.0%).
+          </span>
+
+          <ul>
+            <li>
+              <strong>What this chart shows</strong>: nine guesses for how
+              much worse an empty shelf is than a wasted item, from
+              &ldquo;barely matters&rdquo; (0.25&times;) to &ldquo;very
+              costly&rdquo; (19&times;). At every guess the model beats
+              naive &mdash; least (~20%) when the two are assumed equal,
+              most (70%+) at the extremes, since the model adjusts and
+              naive never does.
+            </li>
+          </ul>
+
+          <img
+            class="chart-sm"
+            src="images/cost_sweep.png"
+            alt="Bar chart: percent cheaper than the naive rule at nine assumed cost ratios, every bar positive"
+          >
+
+          <span class="source">
+            Validation window, recovered TFT arm. The sealed test week is
+            scored only at the single headline point above.
+          </span>
+
+        </div>
+      </div>
+
+
+      <div class="card">
+        <div class="card__title">6. Choosing an Operating Point</div>
+
+        <div class="card__body">
+
+          <span class="headline">
+            Three quantiles, three priorities &mdash; pick based on what the
+            business is optimizing for.
+          </span>
+
+          <img
+            src="images/quantile_anchors.png"
+            alt="Three grouped bar charts, one per metric: stockout days, demand met, and waste, each for today and three candidate quantiles"
+          >
+
+          <ul>
+
+            <li>
+              <strong>Stockout-focused</strong> (q<sub>0.90</sub>):
+              5.6% stockout days, 98.0% demand met &mdash; a real waste
+              cost, not a free win.
+            </li>
+
+            <li>
+              <strong>Balanced</strong> (q<sub>0.513</sub>):
+              no more waste than today, 7 fewer stockout days,
+              +8.6 points demand met. No cost assumption needed.
+            </li>
+
+            <li>
+              <strong>Waste-focused</strong> (q<sub>0.461</sub>):
+              matches today&rsquo;s stockout rate at 19% less waste.
+            </li>
+
+          </ul>
+
+          <ul>
+            <li>
+              <strong>Checked against the test week</strong> (same fixed
+              quantiles, not re-picked): naive scores 42.8% stockout days
+              there. Waste-focused and balanced both flip <em>worse</em>, in
+              both model families (54&ndash;61%); only stockout-focused
+              still beats naive (14&ndash;16%).
+            </li>
+          </ul>
+
+          <span class="source">
+            Nuance: the sweep&rsquo;s lowest-waste point (q<sub>0.33</sub>)
+            is <em>not</em> the recommendation &mdash; 60% stockout days,
+            worse than today. Validation, full-shelf days, recovered TFT
+            unless noted.
+          </span>
+
+        </div>
+      </div>
+
+    </div>
+
+
+    <!-- ================= COLUMN 3 ================= -->
+
+    <div class="col-27">
+
+      <div class="card">
+        <div class="card__title">7. Why TFT and Recovered Data</div>
+
+        <div class="card__body">
+
+          <span class="headline">
+            The data layer did the work; the model architecture was a
+            confirmation, not the finding.
+          </span>
+
+          <ul>
+
+            <li>
+              <strong>Recovered over raw</strong>: raw sales are truncated by
+              stockouts, teaching the model that an empty shelf meant low
+              demand. Recovery removes that bias where it occurs.
+            </li>
+
+            <li>
+              <strong>The payoff, quantified</strong>: on full-shelf (clean)
+              days &mdash; the regime built to penalise recovery &mdash; it
+              recovers far more lost sales than the waste it adds. Pays off
+              once a stockout costs more than ~0.5&times; a binned item on
+              chronic-stockout products (0.87&times; even on the least
+              favourable ones) &mdash; and for fresh food, a stockout is
+              always worse than a bin.
+            </li>
+
+            <li>
+              <strong>TFT over XGBoost, only barely</strong>: pinball 0.1074
+              vs. 0.1116, scored on full-shelf (clean) rows &mdash; a real
+              but modest ~3.9% edge. Run both to prove the recovery result
+              isn&rsquo;t a one-architecture artefact.
+            </li>
+
+          </ul>
+
+        </div>
+      </div>
+
+
+      <div class="card">
+        <div class="card__title">8. Limitations &amp; Future Work</div>
+
+        <div class="card__body">
+
+          <span class="headline">
+            A proof of concept on a dataset that records sales, not stock.
+          </span>
+
+          <ul>
+
+            <li>
+              <strong>No ground truth for stockout-day demand</strong>
+              &mdash; it&rsquo;s fundamentally unobservable, so every result
+              here is scored on &ldquo;clean&rdquo; (full-shelf) days, the
+              only days recorded sales equal true demand. Closing this gap
+              needs real stock-on-hand data, not a better test.
+            </li>
+
+            <li>
+              The chronic-stockout result rests on just 1,375 rows
+              from one seeded subset draw.
+            </li>
+
+            <li>
+              The cost ratio is an assumption, swept rather than known.
+            </li>
+
+            <li>
+              Every number here is a ratio or a percentage &mdash; the sales
+              figure is normalised by an undisclosed coefficient, so no
+              absolute unit count is ever asserted.
+            </li>
+
+            <li>
+              Everything degrades with distance from calibration
+              &mdash; test-week figures are the honest ones.
+            </li>
+
+            <li>
+              <strong>Future work</strong>:
+              stock-on-hand/delivery data would turn recovery&rsquo;s central
+              assumption into a direct measurement; recorded spoilage would
+              make waste an observed outcome, not an arithmetic one.
+            </li>
+
+          </ul>
+
+        </div>
+      </div>
+
+
+      <div class="card">
+        <div class="card__title">9. References</div>
+
+        <div class="card__body references">
+          <ul>
+            <li>Dingdong Inc. (2024). <em>FreshRetailNet-50K</em> dataset (Hugging Face).</li>
+            <li>Lim et al. (2021). Temporal Fusion Transformers.</li>
+            <li>Romano, Patterson &amp; Cand&egrave;s (2019). Conformalized Quantile Regression.</li>
+            <li>Vovk, Gammerman &amp; Shafer (2005). Algorithmic Learning in a Random World.</li>
+            <li>Arrow, Harris &amp; Marschak (1951). Optimal inventory policy (newsvendor).</li>
+          </ul>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+
+</div>
+
+</body>
+</html>

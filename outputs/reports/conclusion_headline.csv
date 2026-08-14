@@ -1,0 +1,9 @@
+window,arm,n_scored,q_star,waste_vs_naive_pct,cost_vs_naive_pct,stockout_pct,demand_met_pct
+validation,tft_recovered,47994,0.8,-148.03,34.72,9.27,96.88
+validation,tft_raw,47994,0.8,-104.0,37.26,14.56,95.12
+validation,xgb_recovered,47994,0.8,-173.52,30.68,7.74,97.24
+validation,xgb_raw,47994,0.8,-125.67,32.76,12.58,95.16
+test,tft_recovered,23402,0.8,-63.4,27.97,22.64,90.19
+test,tft_raw,23402,0.8,-39.41,9.22,29.23,84.55
+test,xgb_recovered,23402,0.8,-117.14,13.4,19.36,89.17
+test,xgb_raw,23402,0.8,-73.76,0.84,26.73,84.12

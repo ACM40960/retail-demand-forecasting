@@ -37,7 +37,7 @@ def plot_recovery_example(recovered: pd.DataFrame, save_path=None):
     ex = recovered[(recovered.store_id == store_id) & (recovered.product_id == product_id)]
     fig = plot_recovery_overlay(ex, title_suffix=f" - store {store_id}, product {product_id}")
     if save_path is not None:
-        fig.savefig(save_path, dpi=110)
+        fig.savefig(save_path, dpi=300)   # print resolution - A0 poster, not just notebook display
     return fig
 
 
@@ -71,7 +71,7 @@ def plot_cost_sweep(sweep: pd.DataFrame, save_path=None):
     fig.tight_layout()
     plt.close(fig)
     if save_path is not None:
-        fig.savefig(save_path, dpi=110)
+        fig.savefig(save_path, dpi=300)   # print resolution - A0 poster, not just notebook display
     return fig
 
 
@@ -139,5 +139,5 @@ def plot_learning_curves(curves: dict, save_path=None):
     fig.tight_layout()
     plt.close(fig)
     if save_path is not None:
-        fig.savefig(save_path, dpi=110)
+        fig.savefig(save_path, dpi=300)   # print resolution - A0 poster, not just notebook display
     return fig

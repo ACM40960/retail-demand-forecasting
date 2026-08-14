@@ -156,8 +156,11 @@ def coverage_ci(df: pd.DataFrame, lower: str, upper: str, n_boot: int = 2000,
     """
     y = df["y"].values
     hit = ((y >= df[lower].values) & (y <= df[upper].values)).astype(float)
+    # blocks = a list of arrays, one per day, of the 5,601 hits on that day. The bootstrap resamples
+    # whole days, not rows, so the within-day correlation is preserved.
     blocks = [g.to_numpy() for _, g in pd.Series(hit, index=df["dt"].values).groupby(level=0)]
     rng = np.random.default_rng(seed)
+    # draws is the mean coverage of a bootstrap sample of the day-blocks, repeated n_boot times
     draws = [np.concatenate([blocks[i] for i in rng.integers(0, len(blocks), len(blocks))]).mean()
              for _ in range(n_boot)]
     lo, hi = np.percentile(draws, [2.5, 97.5])

@@ -410,21 +410,37 @@ def load(tag: str, daily: pd.DataFrame, encoder_days: int):
     return model, training
 
 
-def forecast_test(daily: pd.DataFrame, tag: str = "recovered", save: bool = True) -> pd.DataFrame:
+def forecast_test(daily: pd.DataFrame, tag: str = "recovered", save: bool = True,
+                  encoder_days: int = None) -> pd.DataFrame:
     """Forecast the TEST week from the ALREADY-FIT checkpoint for `tag` - no retraining, and
     nothing about the test week informs the model, which was early-stopped on validation alone.
 
     Ground rule: the test week is opened once, at the final evaluation (PLAN.md §5) - call this
     only when you mean to score or order against it, not as part of routine tuning.
+
+    `encoder_days` defaults to the value in this tag's tuning table. Pass it explicitly for a tag
+    whose checkpoint exists but whose tuning table does not - which is the raw arm's situation: it
+    was fit alongside the recovered arm (the comparison changes only the target, never the config)
+    but only the recovered search was saved. `load` notes that the encoder length is NOT stored on
+    the checkpoint, so it cannot be recovered from the file.
+
+    A wrong `encoder_days` does not raise - it silently builds a differently-conditioned dataset and
+    returns a plausible-looking forecast. So a borrowed value has to be VERIFIED, by re-forecasting
+    the window already on disk and diffing; notebook 04 section 4 does exactly that before it trusts
+    the raw arm's test forecast, and it reads nothing sealed to do so.
     """
-    tuning_path = config.tft_tuning(tag)
-    if not tuning_path.exists():
-        raise FileNotFoundError(f"{tuning_path.name} missing - run forecast.tune(..., tag='{tag}') "
-                                f"first, so the encoder length the checkpoint was fit with is known.")
-    encoder_days = best_params(pd.read_csv(tuning_path))["encoder_days"]
+    if encoder_days is None:
+        tuning_path = config.tft_tuning(tag)
+        if not tuning_path.exists():
+            raise FileNotFoundError(
+                f"{tuning_path.name} missing - run forecast.tune(..., tag='{tag}') first, so the "
+                f"encoder length the checkpoint was fit with is known, or pass encoder_days=... "
+                f"explicitly and verify it reproduces this tag's saved validation forecast.")
+        encoder_days = best_params(pd.read_csv(tuning_path))["encoder_days"]
     model, training = load(tag, daily, encoder_days)
     fc = forecast_period(model, training, daily, config.TEST_START, config.TEST_END)
     if save:
-        config.REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-        fc.to_parquet(config.forecast_parquet("test", tag), index=False)
+        path = config.forecast_parquet("test", tag)
+        path.parent.mkdir(parents=True, exist_ok=True)   # forecasts/, not reports/
+        fc.to_parquet(path, index=False)
     return fc

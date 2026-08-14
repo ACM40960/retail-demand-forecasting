@@ -1,0 +1,17 @@
+family,period,anchor,stockout_pct,demand_met_pct,waste_pct
+tft,validation,naive_today,41.7,79.9,21.9
+tft,validation,waste_focused,41.7,86.0,17.7
+tft,validation,balanced,34.9,88.5,21.8
+tft,validation,stockout_focused,5.6,98.0,67.4
+tft,test,naive_today,42.8,80.5,18.6
+tft,test,waste_focused,60.6,73.0,7.8
+tft,test,balanced,53.9,76.3,10.1
+tft,test,stockout_focused,16.0,92.9,39.5
+xgb,validation,naive_today,41.7,79.9,21.9
+xgb,validation,waste_focused,40.0,86.0,19.0
+xgb,validation,balanced,32.9,88.8,23.6
+xgb,validation,stockout_focused,4.5,98.3,74.4
+xgb,test,naive_today,42.8,80.5,18.6
+xgb,test,waste_focused,53.9,72.0,12.4
+xgb,test,balanced,47.8,75.2,15.3
+xgb,test,stockout_focused,13.9,92.0,51.1

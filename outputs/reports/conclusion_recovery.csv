@@ -1,0 +1,9 @@
+,what,value
+0,chosen Stage-1 model,lightgbm_tweedie
+1,day WAPE on held-out full-shelf days,0.2966
+2,no-model control (series_hour_mean),0.3684
+3,better than the control by,19.5%
+4,aggregation bias before correction,+13.2%
+5,one fitted correction multiplier,x0.9001
+6,day WPE after correction,+0.0186
+7,leakage checks passed,5/5

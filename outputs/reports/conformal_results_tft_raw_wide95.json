@@ -33,6 +33,28 @@
         "ci_high": 0.9875,
         "n_days": 14
       }
+    },
+    "test": {
+      "n_rows": 39207,
+      "n_observed": 23402,
+      "offset": 0.7397,
+      "drift_inflation": 0.03,
+      "uncorrected": {
+        "coverage": 0.8016,
+        "mean_width": 1.4558,
+        "n": 23402
+      },
+      "corrected": {
+        "coverage": 0.9584,
+        "mean_width": 2.3582,
+        "n": 23402
+      },
+      "coverage_ci": {
+        "coverage": 0.9584,
+        "ci_low": 0.944,
+        "ci_high": 0.9683,
+        "n_days": 7
+      }
     }
   }
 }
