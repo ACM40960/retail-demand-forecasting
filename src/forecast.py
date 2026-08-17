@@ -415,8 +415,9 @@ def forecast_test(daily: pd.DataFrame, tag: str = "recovered", save: bool = True
     """Forecast the TEST week from the ALREADY-FIT checkpoint for `tag` - no retraining, and
     nothing about the test week informs the model, which was early-stopped on validation alone.
 
-    Ground rule: the test week is opened once, at the final evaluation (PLAN.md §5) - call this
-    only when you mean to score or order against it, not as part of routine tuning.
+    Ground rule: the test week is opened once, at the final evaluation (README §5, "the test week
+    is touched once") - call this only when you mean to score or order against it, not as part of
+    routine tuning.
 
     `encoder_days` defaults to the value in this tag's tuning table. Pass it explicitly for a tag
     whose checkpoint exists but whose tuning table does not - which is the raw arm's situation: it

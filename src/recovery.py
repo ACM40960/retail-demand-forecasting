@@ -221,7 +221,8 @@ def evaluate(daily: pd.DataFrame, make_model=stage1_lgbm, n_days: int = N_TEST_D
 
     truth = test_days.set_index(KEY)["sale_amount"]
     both = pd.concat([recovered.rename("recovered"), truth.rename("true")], axis=1).dropna()
-    # Data Split to estimate bias_correction and to score it, so the reported error is never measured on days the correction was tuned on
+    # split in half: one half fits bias_correction, the other scores it, so the reported error is
+    # never measured on the same days the correction was tuned on
     calibration = both.sample(frac=0.5, random_state=random_state)
     test = both.drop(index=calibration.index)
 
