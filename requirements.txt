@@ -27,3 +27,6 @@ pytorch-forecasting
 # --- data source + notebook ---
 datasets==4.8.5        # Hugging Face FreshRetailNet-50K loader (src/utils/data_io.py)
 ipykernel==7.1.0       # kernel for notebooks/
+
+# --- reviewer dashboard (app/) ---
+streamlit==1.47.1

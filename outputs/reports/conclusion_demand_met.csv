@@ -1,9 +1,0 @@
-window,arm,order_percentile,waste_pct,stockout_pct
-validation,tft_recovered,0.696,41.4,15.55
-validation,xgb_recovered,0.679,43.2,14.66
-validation,tft_raw,0.795,44.0,14.93
-validation,xgb_raw,0.793,48.5,13.06
-test,tft_recovered,0.92,51.9,10.54
-test,tft_raw,0.947,72.7,7.09
-test,xgb_recovered,0.937,75.8,7.13
-test,xgb_raw,0.968,95.9,5.1

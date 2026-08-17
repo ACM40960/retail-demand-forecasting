@@ -144,8 +144,8 @@ def _summary_md(selection: str, corpus: dict, subset: dict, eval_rows: int,
             ("categories", corpus["n_categories"], subset["n_categories"]),
             ("products", f"{corpus['n_products']:,}", f"{subset['n_products']:,}"),
             ("train rows", f"{corpus['rows']:,}", f"{subset['rows']:,}"),
-            ("units/day", corpus["mean_daily_sales"], subset["mean_daily_sales"]),
-            ("censored days", f"{corpus['censored_day_share']:.1%}",
+            ("normalised sale amount/day", corpus["mean_daily_sales"], subset["mean_daily_sales"]),
+            ("censored product-days", f"{corpus['censored_day_share']:.1%}",
              f"{subset['censored_day_share']:.1%}")]
     return config.SUBSET_SUMMARY_MD.format(
         built_at=datetime.datetime.now().isoformat(timespec="seconds"),

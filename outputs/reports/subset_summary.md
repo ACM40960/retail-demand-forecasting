@@ -11,12 +11,12 @@ Seeded random sample of **100 of 898 stores** (seed 123), keeping every series t
 | categories | 32 | 30 |
 | products | 865 | 557 |
 | train rows | 4,500,000 | 504,090 |
-| units/day | 0.9986 | 0.997 |
-| censored days | 44.3% | 43.8% |
+| normalised sale amount/day | 0.9986 | 0.997 |
+| censored product-days | 44.3% | 43.8% |
 
 The subset is **11.2% of the corpus** at ~56 series per store. Matching the corpus on
-units/day and censored-day share is what makes it representative: nothing is selected on sales
-volume, so no scope restriction has to be declared.
+normalised sale amount and the share of censored product-days is what makes it representative:
+nothing is selected on sales volume, so no scope restriction has to be declared.
 
 A further **39,207 rows** of shipped eval data are held back for the final evaluation and are
 not read by any earlier stage.

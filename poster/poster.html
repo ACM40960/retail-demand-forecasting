@@ -13,6 +13,7 @@
     --ink-primary:#0b0b0b;
     --ink-secondary:#52514e;
     --ink-muted:#898781;
+    --ink-white:#fff;
 
     /* EXACT A0 PORTRAIT */
     --page-w:841mm;
@@ -72,6 +73,7 @@ body {
 }
 
 
+
 /* =========================================================
    POSTER
    ========================================================= */
@@ -84,7 +86,7 @@ body {
 
   background:#fff;
 
-  padding:14mm 16mm;
+  padding:0;
 
   display:flex;
   flex-direction:column;
@@ -112,7 +114,7 @@ body {
   padding:0;
   overflow:hidden;
 
-  border-radius:3mm;
+  border-radius:0;
 
   margin-bottom:8mm;
 
@@ -123,42 +125,40 @@ body {
 .banner-mark,
 .banner-qr {
   position:absolute;
-  top:0;
+  top:50%;
+  transform:translateY(-50%);
 
   width:55mm;
   height:55mm;
-
-  background:#fff;
 
   display:flex;
   flex-direction:column;
   align-items:center;
   justify-content:center;
-
-  padding:3mm;
 }
 
-.banner-mark { left:0; }
-.banner-qr   { right:0; }
+.banner-mark { left:50px; }
+.banner-qr   { right:50px; background:#fff; }
 
 .banner-mark img,
 .banner-qr img {
-  max-width:100%;
-  max-height:100%;
+  max-width:120%;
+  max-height:120%;
   object-fit:contain;
 }
 
 .banner-qr .qr-caption {
   margin-top:1.5mm;
 
-  font-size:9pt;
+  font-size:12pt;
   line-height:1.15;
   text-align:center;
-  color:var(--ink-secondary);
+  color:var(--ink-white);
 }
 
 .banner-text {
   padding:10mm 62mm;
+  text-align: center;
 }
 
 .banner h1 {
@@ -195,7 +195,8 @@ body {
     min-height:0;
     display:flex;
     gap:7mm;
-    align-items:flex-start; /* was stretch */
+    align-items:stretch;
+    padding:0 16mm 14mm 16mm;
   }
 
   .col-27 {
@@ -215,6 +216,14 @@ body {
     flex-direction:column;
     gap:6mm;
     justify-content:flex-start;
+  }
+
+  /* Only the LAST card in each column grows to absorb the height difference
+     between columns, so all three end flush at the bottom - every other
+     card, and every 6mm gap between cards, stays exactly its natural size. */
+  .col-27 > .card:last-child,
+  .col-46 > .card:last-child {
+    flex:1 1 auto;
   }
 
   .card {
@@ -261,10 +270,25 @@ body {
     line-height:1.35; /* was 1.32 */
   }
 
+  .card__body > p:first-child {
+    margin-top:0;
+    margin-bottom:0;
+  }
+
+  /* Approach & Workflow: this card's last-in-column stretch (see .col-27 >
+     .card:last-child) leaves leftover height its flowchart doesn't fill on
+     its own - center the flow vertically instead of leaving it pinned to
+     the top with dead space below. */
+  .card__body--center {
+    display:flex;
+    flex-direction:column;
+    justify-content:center;
+  }
+
   .headline {
     display:block;
     font-weight:700;
-    font-size:31pt;   /* was 29pt */
+    font-size:27pt;   /* was 29pt */
     line-height:1.24;
     margin-bottom:4mm;
   }
@@ -278,7 +302,9 @@ body {
   margin:0;
   padding-left:7mm;
 }
-
+ul {
+  list-style-position: inside; /* Moves the bullet inside the text block */
+}
 .card__body li {
   margin-bottom:3.2mm;
   padding-left:1.5mm;
@@ -319,8 +345,16 @@ body {
   width:98%;
 }
 
+/* column 2 carries the most content on the poster (2 tables + 2 figures +
+   the new captions) - a small, uniform type-scale trim buys back the room
+   without touching column 1/3's scale or shrinking any chart. */
+.col-46 .card__body {
+  font-size:26pt;
+  line-height:1.32;
+}
+
 .col-46 .card__body img.chart-sm {
-  width:66%;
+  width:80%;
 }
 
 .check-table {
@@ -363,9 +397,222 @@ body {
   font-weight:700;
 }
 
+.stage-table {
+  width:100%;
+  border-collapse:collapse;
+  margin:3mm 0;
+  font-size:20pt;
+}
+
+.stage-table th {
+  background:var(--color-one);
+  color:#fff;
+  font-weight:700;
+  text-align:left;
+  padding:2.4mm 3mm;
+
+  -webkit-print-color-adjust:exact;
+  print-color-adjust:exact;
+}
+
+.stage-table td {
+  border-bottom:1pt solid var(--color-one-8);
+  padding:2.8mm 3mm;
+  vertical-align:top;
+}
+
+.stage-table tr:last-child td {
+  border-bottom:none;
+}
+
+.stage-table td.stat {
+  font-weight:700;
+  color:var(--ink-primary);
+}
+
+.compare-table {
+  width:100%;
+  border-collapse:collapse;
+  margin:3mm 0;
+  font-size:18.5pt;
+  text-align:center;
+}
+
+.compare-table th {
+  background:var(--color-one);
+  color:#fff;
+  font-weight:700;
+  padding:2mm 2mm;
+
+  -webkit-print-color-adjust:exact;
+  print-color-adjust:exact;
+}
+
+.compare-table th.sub {
+  background:var(--color-one-8);
+  color:var(--ink-primary);
+  font-size:15pt;
+}
+
+.compare-table td {
+  border-bottom:1pt solid var(--color-one-8);
+  padding:2.4mm 2mm;
+}
+
+.compare-table td.label {
+  text-align:left;
+  font-weight:700;
+}
+
+.compare-table tr:last-child td {
+  border-bottom:none;
+}
+
+.worse {
+  color:#c0392b;
+  font-weight:700;
+}
+
+.better {
+  color:#0ca30c;
+  font-weight:700;
+}
+
 .col-27 .card__body img {
   width:98%;
 }
+
+/* =========================================================
+   POLICY COMPARISON BARS (Choosing an Operating Point)
+   ========================================================= */
+
+.tradeoff-chart {
+  display:flex;
+  gap:6mm;
+  width:92%;
+  margin:2mm auto 0 auto;
+}
+
+.tradeoff-panel {
+  flex:1 1 0;
+  min-width:0;
+}
+
+.tradeoff-panel svg {
+  display:block;
+  width:100%;
+  height:auto;
+}
+
+
+/* =========================================================
+   FINDING BOXES (Recovery vs. Model Choice)
+   ========================================================= */
+
+.finding-grid {
+  display:flex;
+  flex-wrap:wrap;
+  gap:4mm;
+  margin:2mm 0;
+}
+
+.finding-box {
+  flex:1 1 40%;
+  min-width:0;
+  border:1.4pt solid var(--color-one);
+  border-radius:2mm;
+  padding:2mm 3mm;
+  background:#fff;
+}
+
+.finding-box__title {
+  display:block;
+  font-weight:700;
+  color:var(--color-one);
+  margin-bottom:1mm;
+}
+
+.finding-box p {
+  margin:0;
+}
+
+.finding-box ul {
+  margin:0;
+}
+
+.finding-box li {
+  margin-bottom:1mm;
+}
+
+/* Limitations & Future Work: 4 boxes need to cost less height than the
+   2-box Recovery/Model-Choice grid does, so this variant runs tighter
+   padding and a smaller type scale. */
+.finding-grid--compact {
+  gap:3.5mm;
+}
+
+.finding-grid--compact .finding-box {
+  padding:2mm 3mm;
+}
+
+.finding-grid--compact .finding-box__title {
+  font-size:0.9em;
+  margin-bottom:0.8mm;
+}
+
+.finding-grid--compact .finding-box p {
+  font-size:0.86em;
+  line-height:1.22;
+}
+
+/* =========================================================
+   STAT TILES (Stage-wise Results)
+   ========================================================= */
+
+.stat-grid {
+  display:grid;
+  grid-template-columns:repeat(2, 1fr);
+  gap:4mm;
+  margin:3mm 0;
+}
+
+.stat-tile {
+  border:1.4pt solid var(--color-one);
+  border-radius:2.5mm;
+  padding:3mm 4mm;
+  background:var(--color-one-8);
+}
+
+.stat-tile__stage {
+  display:block;
+  font-weight:700;
+  color:var(--ink-primary);
+  line-height:1.22;
+  margin-bottom:1mm;
+}
+
+.stat-tile__check {
+  display:block;
+  color:var(--ink-secondary);
+  font-size:0.72em;
+  line-height:1.2;
+  margin-bottom:2mm;
+}
+
+.stat-tile__result {
+  display:block;
+  font-weight:700;
+  font-size:30px;
+  color:var(--color-one);
+  line-height:1.3;
+}
+
+.stat-tile__result small {
+  font-weight:400;
+  font-size:0.72em;
+  color:var(--ink-secondary);
+}
+
 
 
 /* =========================================================
@@ -375,13 +622,46 @@ body {
 .source {
   display:block;
 
-  font-size:18pt;
+  font-size:20pt;
 
   color:var(--ink-muted);
 
   margin-top:3mm;
 
   line-height:1.25;
+}
+
+/* =========================================================
+   FIGURE / TABLE CAPTIONS
+   ========================================================= */
+
+.fig-caption,
+.table-caption {
+  display:block;
+  text-align:center;
+  font-size:14pt;
+  font-style:italic;
+  line-height:1.2;
+
+  color:var(--ink-secondary);
+}
+
+.fig-caption {
+  text-align:center;
+}
+
+.fig-caption strong,
+.table-caption strong {
+  font-style:normal;
+  color:var(--ink-primary);
+}
+
+.fig-caption {
+  margin:1.5mm 0 2mm 0;
+}
+
+.table-caption {
+  margin:0 0 1.5mm 0;
 }
 
 .source code {
@@ -434,90 +714,74 @@ sup {
   display:flex;
   flex-direction:column;
 
-  gap:2mm;
+  gap:1.5mm;
 
-  margin:4mm 0 1.5mm 0;
+  margin:2mm 0 1mm 0;
 }
 
-.flow-step {
+.flow-connector {
   display:flex;
-  align-items:stretch;
-  gap:3mm;
-}
-
-.flow-num {
-  flex:0 0 auto;
-
-  width:11mm;
-  height:11mm;
-  margin-top:0.5mm;
-
-  border-radius:50%;
-
-  background:var(--color-one);
-  color:#fff;
-
-  display:flex;
-  align-items:center;
   justify-content:center;
 
-  font-weight:700;
-  font-size:17pt;
+  color:var(--color-one);
+}
 
-  -webkit-print-color-adjust:exact;
-  print-color-adjust:exact;
+.flow-connector svg {
+  display:block;
+  width:7mm;
+  height:7mm;
+  overflow:visible;
+}
+
+.flow-title {
+  display:block;
+  text-align:center;
 }
 
 .flow-box {
-  flex:1 1 auto;
-  min-width:0;
+  border:1.6pt solid var(--color-one);
+  border-radius:2.8mm;
+  background:#fff;
 
-  border:1.4pt solid var(--color-one);
-  border-radius:2.5mm;
-  background:var(--color-one-8);
-
-  padding:2.6mm 4mm;
+  padding:4mm 4.5mm;
 
   -webkit-print-color-adjust:exact;
   print-color-adjust:exact;
 }
 
 .flow-box strong {
-  font-size:21pt;
+  font-size:26pt;
 }
 
 .flow-box small {
-  font-size:14.5pt;
+  display:block;
+  text-align:center;
+
+  font-size:24pt;
   color:var(--ink-secondary);
 }
 
 .flow-box p {
-  margin:1.3mm 0 0 0;
+  margin:1.8mm 0 0 0;
 
-  font-size:15.5pt;
-  line-height:1.25;
+  font-size:24pt;
+  line-height:1.28;
 }
 
-.flow-arrow {
-  margin-left:4mm;
-
-  color:var(--color-one);
-  font-weight:700;
-  font-size:19pt;
-  line-height:1;
+.flow-box--final {
+  background:var(--color-one);
+  border-color:var(--color-one);
+  text-align:center;
 }
 
-.flow-box--accent {
-  background:var(--color-three-8);
-  border-color:var(--color-three);
-}
-
-.flow-num--accent {
-  background:var(--color-three);
+.flow-box--final strong,
+.flow-box--final small,
+.flow-box--final p {
+  color:#fff;
 }
 
 .flow-side {
-  margin:0 0 0 14mm;
+  margin:0 0 0 4.5mm;
 
   padding:2mm 3.5mm;
 
@@ -535,10 +799,15 @@ sup {
 }
 
 .flow-side-arrow {
+  display:inline-block;
+  vertical-align:middle;
   margin-right:1.5mm;
+  margin-top:-0.5mm;
+
+  width:6mm;
+  height:4mm;
 
   color:var(--color-one);
-  font-weight:700;
 }
 
 .impl-note {
@@ -595,8 +864,7 @@ sup {
 .references ul {
   margin:0;
   padding-left:6mm;
-
-  font-size:16.5pt;
+  font-size:17.5pt;
   line-height:1.32;
 }
 
@@ -639,8 +907,8 @@ sup {
       max-height:1189mm;
       margin:0;
 
-      /* keep same padding as screen to avoid reflow mismatches */
-      padding:14mm 16mm; /* was 12mm 14mm */
+      /* padding now lives on .columns, so the banner can bleed to the page edges */
+      padding:0;
 
       box-shadow:none;
       overflow:hidden;
@@ -679,7 +947,7 @@ sup {
   <div class="banner">
 
     <div class="banner-mark">
-      <img src="images/UCDLogo.jpeg" alt="University College Dublin logo">
+      <img src="images/UCDLogo.png" alt="University College Dublin logo">
     </div>
 
     <div class="banner-text">
@@ -692,6 +960,8 @@ sup {
 
       <p class="institute">
         ACM40960 Projects in Maths Modelling
+              &nbsp;&middot;&nbsp;
+              Msc Data &amp; Computational Science
         &nbsp;&middot;&nbsp;
         University College Dublin
       </p>
@@ -699,7 +969,7 @@ sup {
 
     <div class="banner-qr">
       <img src="images/qr_code.png" alt="QR code to project repository">
-      <span class="qr-caption">Code &amp; full report</span>
+      <span class="qr-caption">Scan for code, repo &amp; results</span>
     </div>
 
   </div>
@@ -716,27 +986,22 @@ sup {
     <div class="col-27">
 
       <div class="card">
-        <div class="card__title">1. Objective</div>
+        <div class="card__title">Introduction</div>
 
         <div class="card__body">
 
           <span class="headline">
-            Recover the demand that stockouts hide, and turn it into a better order
-            &mdash; not just a better forecast.
-          </span>
-
-          <ul>
-            <li>
-              A stockout records zero sales, not zero demand &mdash; so a
+             A stockout records zero sales, not zero demand. A
               forecast trained on raw sales keeps under-ordering exactly the
               products that sell out.
-            </li>
+          </span>
 
-            <li>
-              Recover the hidden demand &rarr; forecast it as a range
-              &rarr; convert the range into an order.
-            </li>
-          </ul>
+          <p>
+            <strong>Objective:</strong> Recover the demand that stockouts
+            hide, forecast a realistic best-to-worst-case range for it,
+            and use that to decide exactly how much stock to order:
+            a better order, not just a better forecast.
+          </p>
 
           <span class="tag">
             Success: cheaper than
@@ -749,42 +1014,48 @@ sup {
 
 
       <div class="card">
-        <div class="card__title">2. Data</div>
+        <div class="card__title">Data</div>
 
         <div class="card__body">
 
           <span class="headline">
-            Subset of FreshRetailNet-50K &mdash; 100 stores,
-            5,601 series, 43.8% of product-days partially stocked out.
+            Subset of FreshRetailNet-50K: 100 stores,
+            5,601 series, 43.8% of product-days stocked out (Partially).
           </span>
 
           <ul>
             <li>
-              Dingdong Inc., via Hugging Face &mdash; 100 of 898 stores,
-              a seeded whole-store draw with no volume bias, 11.2% of the corpus.
+              Dingdong Inc. (grocery chain), 100 of 898 stores
+              picked at random (about 11% of the full dataset).
             </li>
 
             <li>
-              Frozen calendar: train (62d) &rarr; validate (14d) &rarr;
-              calibrate (14d) &rarr; <strong>sealed test (opened once)</strong>.
+              Four blocks in time order, never overlapping: 62 days to
+              train &rarr; <strong>validation weeks</strong> (2 weeks, to
+              compare models and pick the best one) &rarr; <strong>calibration weeks</strong> (2
+              weeks, to adjust the forecast ranges) &rarr;
+              <strong>sealed test week</strong> (opened once, at the end).
             </li>
 
             <li>
-              What makes this solvable: hour-level stockout flags, so a
-              censored zero is distinguishable from a genuine no-sale.
+              What makes this solvable: the data records which hours each
+              shelf was empty, so &ldquo;nothing sold&rdquo; and
+              &ldquo;nothing left to sell&rdquo; look different.
             </li>
           </ul>
 
           <img
             src="images/stockout_timing.png"
             alt="Bar chart: share of stockout-days by the hour the shelf first goes empty, 06:00 to 21:00"
-          >
+          style="width:90%">
+
+          <span class="fig-caption">
+            <strong>Figure 1.</strong> Stockout timing.
+          </span>
 
           <span class="source">
             <strong>Once out, it stays out</strong>: 87.4% never restock
-            before closing (13.4% already empty at opening) &mdash; why
-            Stage 2 just carries the predicted rate forward, rather than
-            modelling a same-day return.
+            before closing (13.4% already empty at opening).
           </span>
 
         </div>
@@ -792,100 +1063,118 @@ sup {
 
 
       <div class="card">
-        <div class="card__title">3. Approach &amp; Workflow</div>
-
-        <div class="card__body">
-
-          <span class="headline">
-            From raw sales to a stocking decision &mdash; one pipeline,
-            start to finish.
-          </span>
-
+        <div class="card__title">Approach &amp; Workflow</div>
+        <div class="card__body card__body--center" style="padding-top:5mm">
           <div class="flow">
 
             <div class="flow-step">
-              <div class="flow-num">1</div>
               <div class="flow-box">
-                <strong>Ingest &amp; Subset</strong> &nbsp;<small>seeded draw</small>
-                <p>100 seeded stores, 5,601 series, frozen calendar.</p>
+                <div class="flow-title"><strong>Ingest &amp; Subset</strong></div>
+                <small>seeded draw</small>
+                <p>A representative, whole-store draw: 100 seeded
+                stores, 5,601 series, frozen calendar.</p>
               </div>
             </div>
 
-            <div class="flow-side">
-              <span class="flow-side-arrow">&#8618;</span>
-              <strong>Baselines</strong> &mdash; naive &middot; SARIMA &middot;
-              XGB-quantile, on raw sales: the bar every arm has to clear.
+            <!-- <div class="flow-side">
+              <svg class="flow-side-arrow" viewBox="0 0 30 16" role="img" aria-label="branches off stage 1">
+                <defs>
+                  <marker id="arrow-branch" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+                    <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+                  </marker>
+                </defs>
+                <line x1="2" y1="8" x2="22" y2="8" stroke="currentColor" stroke-width="2.4" marker-end="url(#arrow-branch)"/>
+              </svg>
+              <strong>Baselines</strong> - simple, established methods
+              on raw sales: the bar every new approach below has to clear.
+              If recovery and forecasting can&rsquo;t beat them, nothing
+              downstream is worth building.
+            </div> -->
+
+            <div class="flow-connector">
+              <svg viewBox="0 0 24 44" role="img" aria-label="flows into stage 2">
+                <defs>
+                  <marker id="arrow-c1" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+                    <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+                  </marker>
+                </defs>
+                <line x1="12" y1="2" x2="12" y2="24" stroke="currentColor" stroke-width="3" marker-end="url(#arrow-c1)"/>
+              </svg>
             </div>
 
-            <div class="flow-arrow">&darr;</div>
-
             <div class="flow-step">
-              <div class="flow-num">2</div>
               <div class="flow-box">
-                <strong>Recover &middot; Stage 1</strong> &nbsp;<small>LightGBM, Tweedie</small>
-                <p>Predicts hourly in-stock demand rate, non-stockout hours only.</p>
+                <div class="flow-title"><strong>Recover</strong></div>
+                <small>LightGBM &rarr; fill + correct</small>
+                <p>Raw sales undercount once a shelf empties. Recovery
+                fills those hours with a modelled selling rate, floored
+                at what was observed.</p>
               </div>
             </div>
 
-            <div class="flow-arrow">&darr;</div>
+            <div class="flow-connector">
+              <svg viewBox="0 0 24 44" role="img" aria-label="flows into stage 3">
+                <defs>
+                  <marker id="arrow-c2" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+                    <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+                  </marker>
+                </defs>
+                <line x1="12" y1="2" x2="12" y2="24" stroke="currentColor" stroke-width="3" marker-end="url(#arrow-c2)"/>
+              </svg>
+            </div>
 
             <div class="flow-step">
-              <div class="flow-num">3</div>
               <div class="flow-box">
-                <strong>Recover &middot; Stage 2</strong> &nbsp;<small>fill + correct</small>
-                <p>Fills stocked-out hours only, floored at observed, corrected &times;0.900.</p>
+                <div class="flow-title"><strong>Forecast</strong></div>
+                <small>TFT + XGBoost, 6 quantiles</small>
+                <p>Two model types &times; two data types = 4 versions,
+                scored on validation weeks never trained on. Six
+                quantiles each, not just the median.</p>
               </div>
             </div>
 
-            <div class="flow-arrow">&darr;</div>
+            <div class="flow-connector">
+              <svg viewBox="0 0 24 44" role="img" aria-label="flows into stage 4">
+                <defs>
+                  <marker id="arrow-c3" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+                    <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+                  </marker>
+                </defs>
+                <line x1="12" y1="2" x2="12" y2="24" stroke="currentColor" stroke-width="3" marker-end="url(#arrow-c3)"/>
+              </svg>
+            </div>
 
             <div class="flow-step">
-              <div class="flow-num flow-num--accent">4</div>
-              <div class="flow-box flow-box--accent">
-                <strong>Forecast</strong> &nbsp;<small>TFT + XGBoost, 6 quantiles</small>
-                <p>Raw &amp; recovered demand &mdash; 4 arms, each grid-tuned.</p>
+              <div class="flow-box">
+                <div class="flow-title"><strong>Calibrate</strong></div>
+                <small>split-CQR (split conformal quantile regression)</small>
+                <p>Widens the forecast range so a stated 80% band actually
+                contains truth 80% of the time.</p>
               </div>
             </div>
 
-            <div class="flow-arrow">&darr;</div>
-
-            <div class="flow-step">
-              <div class="flow-num">5</div>
-              <div class="flow-box">
-                <strong>Calibrate</strong> &nbsp;<small>split-CQR</small>
-                <p>Widens bands to ~80% coverage &mdash; checked via day-block bootstrap CI.</p>
-              </div>
+            <div class="flow-connector">
+              <svg viewBox="0 0 24 44" role="img" aria-label="flows into stage 5">
+                <defs>
+                  <marker id="arrow-c4" viewBox="0 0 10 10" refX="6" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+                    <path d="M0,0 L10,5 L0,10 z" fill="currentColor"/>
+                  </marker>
+                </defs>
+                <line x1="12" y1="2" x2="12" y2="24" stroke="currentColor" stroke-width="3" marker-end="url(#arrow-c4)"/>
+              </svg>
             </div>
 
-            <div class="flow-arrow">&darr;</div>
-
             <div class="flow-step">
-              <div class="flow-num">6</div>
-              <div class="flow-box">
-                <strong>Order</strong> &nbsp;<small>newsvendor</small>
-                <p>Reads q<sup>*</sup>=c<sub>u</sub>/(c<sub>u</sub>+c<sub>o</sub>) off the forecast;
-                compared raw vs. recovered, 4 arms.</p>
-              </div>
-            </div>
-
-            <div class="flow-arrow">&darr;</div>
-
-            <div class="flow-step">
-              <div class="flow-num">7</div>
-              <div class="flow-box">
-                <strong>Evaluate</strong> &nbsp;<small>cost sweep</small>
-                <p>9 cost ratios vs. naive, on the sealed test week.</p>
+              <div class="flow-box flow-box--final">
+                <div class="flow-title"><strong>Order &amp; Evaluate</strong></div>
+                <small>newsvendor rule &middot; cost sweep</small>
+                <p>Converts the forecast into an order at the percentile a
+                cost ratio implies, checked against naive practice under
+                9 assumptions.</p>
               </div>
             </div>
 
           </div>
-
-          <div class="impl-note">
-            <strong>Implementation:</strong> six quantiles fit jointly regularize
-            rather than dilute &mdash; q<sub>0.8</sub> pinball 0.1334&rarr;0.1327
-            vs. a 2-quantile fit.
-          </div>
-
         </div>
       </div>
 
@@ -897,110 +1186,107 @@ sup {
     <div class="col-46">
 
       <div class="card">
-        <div class="card__title">4. Stage-wise Results</div>
+        <div class="card__title">Stage-wise Results</div>
 
         <div class="card__body">
 
-          <ul>
-
-            <li>
-              <strong>Recovery works</strong>:
-              WAPE 0.2966 vs. 0.3684 for a naive baseline &mdash; 19.5% lower
-              error, measured on held-out full-shelf (clean) days &mdash;
-              the only days true demand is actually known.
-            </li>
-
-            <li>
-              <strong>Fixes the forecast where censoring bites</strong>:
-              on chronic-stockout products (n=1,375), WAPE improves ~23%;
-              bias corrected from &minus;20% to near zero.
-            </li>
-
-            <li>
-              <strong>The bands are honest</strong>: 80% band coverage lands
-              at 79&ndash;83%, in validation and on the
-              <strong>sealed test week</strong> alike.
-            </li>
-
-          </ul>
-
-          <span class="headline" style="margin-top:3mm;">
-            At matched 95% demand met, recovered wastes less than raw in both
-            model families &mdash; and the gap widens sharply out of sample.
+          <span class="headline">
+            Each stage checked on its own terms before the next was built
+            on it.
           </span>
 
-          <img
-            src="images/waste_comparison.png"
-            alt="Grouped bar chart: food wasted at 95% demand met, raw vs. recovered, for TFT and XGBoost, validation and test windows"
-          >
-
-          <span class="source">
-            Both model families, validation and the sealed test week.
+          <span class="table-caption">
+            <strong>Table 1.</strong> Result checked at each pipeline stage.
           </span>
 
-          <ul>
-            <li>
-              <strong>Why waste actually drops</strong>: raw must be pushed
-              to a high percentile (~79th&ndash;95th) to offset its own
-              downward bias; recovered needs only ~68th&ndash;92nd. Less
-              padding, less waste.
-            </li>
-          </ul>
+          <div class="stat-grid">
+            <div class="stat-tile">
+              <span class="stat-tile__stage">Recovering hidden demand</span>
+              <span class="stat-tile__check">vs. no-model average</span>
+              <span class="stat-tile__result">0.30 vs. 0.37 WAPE <small>(19% better)</small></span>
+            </div>
+            <div class="stat-tile">
+              <span class="stat-tile__stage">Forecast accuracy, chronic-stockout products</span>
+              <span class="stat-tile__check">&ge;75% censored series only, not the pooled average</span>
+              <span class="stat-tile__result">WAPE falls 25.2% <small>(TFT)</small>, 22.9% <small>(XGBoost)</small>, vs. raw</span>
+            </div>
+            <div class="stat-tile">
+              <span class="stat-tile__stage">Calibrated forecast ranges</span>
+              <span class="stat-tile__check">80% band&rsquo;s actual coverage (TFT, recovered)</span>
+              <span class="stat-tile__result">82.6% <small>(validation)</small>, 79.1% <small>(test)</small>; target 80%</span>
+            </div>
+            <div class="stat-tile">
+              <span class="stat-tile__stage">Waste at 95% demand met</span>
+              <span class="stat-tile__check">TFT: raw vs. recovered</span>
+              <span class="stat-tile__result">44.0%&rarr;41.4% <small>(validation)</small>;
+                72.7%&rarr;51.9% <small>(test)</small></span>
+            </div>
+          </div>
 
         </div>
       </div>
 
 
       <div class="card">
-        <div class="card__title">5. Final Ordering Decision</div>
+        <div class="card__title">Final Ordering Decision</div>
 
         <div class="card__body">
 
           <span class="headline">
             Order the q<sup>*</sup>-th percentile of the calibrated,
-            recovered forecast.
+            recovered TFT forecast.
           </span>
-
-          <ul>
-            <li>
-              Rule:
-              order = F<sup>&minus;1</sup>(q<sup>*</sup>),
-              &nbsp;
-              q<sup>*</sup> =
+          The newsvendor rule is the classic formula for the order quantity that minimises cost
+when a stockout and a wasted unit cost different amounts. The optimal
+           order = F<sup>&minus;1</sup>(q<sup>*</sup>), q<sup>*</sup> =
               <span class="frac">
                 <span class="num">c<sub>u</sub></span>
                 <span class="den">c<sub>u</sub>+c<sub>o</sub></span>
-              </span>.
-            </li>
-          </ul>
+              </span>. c<sub>u</sub>: cost of running short by one unit.
+              c<sub>o</sub>: cost of one unit left over.
 
-          <span class="tag">
+
+          <!-- <span class="tag">
             34.7% cheaper than &ldquo;order what sold last week&rdquo;
-            &mdash; recovered TFT, at c<sub>u</sub>/c<sub>o</sub>=4
-            (sealed test week: 28.0%).
-          </span>
+            - recovered TFT, at c<sub>u</sub>/c<sub>o</sub>=4
+            (28.0% cheaper at test week).
+          </span> -->
 
-          <ul>
-            <li>
-              <strong>What this chart shows</strong>: nine guesses for how
-              much worse an empty shelf is than a wasted item, from
-              &ldquo;barely matters&rdquo; (0.25&times;) to &ldquo;very
-              costly&rdquo; (19&times;). At every guess the model beats
-              naive &mdash; least (~20%) when the two are assumed equal,
-              most (70%+) at the extremes, since the model adjusts and
-              naive never does.
-            </li>
-          </ul>
+   
+            <!-- <li>
+              <strong>The trade-off, already priced in</strong>: getting
+              there means far fewer stockouts - from 42% of days
+              down to 9% (validation weeks) / 23% (test week) - but
+              roughly double the waste. The 34.7%/28.0% savings above
+              already account for both: they are what is left after
+              adding the cost of stockouts and the cost of wasted food
+              together, not a number that hides the extra waste.
+            </li> -->
+         
+            <br>
+              <strong>Tested across nine cost assumptions</strong> in
+              total, from a stockout costing a quarter as much as a
+              wasted item to 19 times as much. The model beat
+              today&rsquo;s practice at every cost ratio.
+            
 
           <img
             class="chart-sm"
             src="images/cost_sweep.png"
-            alt="Bar chart: percent cheaper than the naive rule at nine assumed cost ratios, every bar positive"
+            alt="Line chart with two lines, validation weeks and sealed test week, both showing the model cheaper than naive approach at nine assumed cost ratios"
           >
 
+          <span class="fig-caption">
+            <strong>Figure 2.</strong> Cost sweep vs. naive rule.
+          </span>
+
           <span class="source">
-            Validation window, recovered TFT arm. The sealed test week is
-            scored only at the single headline point above.
+            The savings are smaller on the sealed test week than on the
+            validation weeks, but still real at every cost
+            assumption. Both are averages over a handful of days, so
+            treat them as ranges, not exact figures: the true saving is
+            likely 30&ndash;39% on the validation weeks and 25&ndash;31%
+            on the test week.
           </span>
 
         </div>
@@ -1008,56 +1294,170 @@ sup {
 
 
       <div class="card">
-        <div class="card__title">6. Choosing an Operating Point</div>
+        <div class="card__title">Choosing an Operating Point</div>
 
         <div class="card__body">
 
           <span class="headline">
-            Three quantiles, three priorities &mdash; pick based on what the
-            business is optimizing for.
+            No single policy wins outright - the choice is which
+            risk to carry.
           </span>
 
-          <img
-            src="images/quantile_anchors.png"
-            alt="Three grouped bar charts, one per metric: stockout days, demand met, and waste, each for today and three candidate quantiles"
-          >
+          <p>
+            The three policies below are the same recovered-demand
+            forecast, each ordering at a different percentile. The
+            <strong>naive rule</strong> is simulated too, not raw data:
+            it orders whatever sold last week.
+          </p>
 
-          <ul>
+          <div class="tradeoff-chart">
 
-            <li>
-              <strong>Stockout-focused</strong> (q<sub>0.90</sub>):
-              5.6% stockout days, 98.0% demand met &mdash; a real waste
-              cost, not a free win.
-            </li>
+            <div class="tradeoff-panel">
+              <svg viewBox="0 0 320 190" role="img"
+                   aria-label="Bar chart, stockout days percent, TFT, test week, y-axis 0 to 60. Waste-focused 61, Balanced 54, Stockout-focused 16. Dashed reference line at 43, the naive rule's test-week value.">
+                <text x="150" y="14" font-size="15" font-weight="700" fill="var(--ink-primary)" text-anchor="middle">Stockout days - TFT, test week</text>
 
-            <li>
-              <strong>Balanced</strong> (q<sub>0.513</sub>):
-              no more waste than today, 7 fewer stockout days,
-              +8.6 points demand met. No cost assumption needed.
-            </li>
+                <!-- y-axis: gridlines, ticks, labels (0-70 scale) -->
+                <g stroke="var(--ink-muted)" stroke-width="1" opacity="0.25">
+                  <line x1="38" y1="53.6" x2="288" y2="53.6"/>
+                  <line x1="38" y1="90.7" x2="288" y2="90.7"/>
+                  <line x1="38" y1="127.9" x2="288" y2="127.9"/>
+                </g>
+                <g font-size="11" fill="var(--ink-muted)" text-anchor="end">
+                  <text x="34" y="168">0</text>
+                  <text x="34" y="131.4">20</text>
+                  <text x="34" y="94.2">40</text>
+                  <text x="34" y="57.1">60%</text>
+                </g>
+                <line x1="38" y1="35" x2="38" y2="165" stroke="var(--ink-secondary)" stroke-width="1.2"/>
 
-            <li>
-              <strong>Waste-focused</strong> (q<sub>0.461</sub>):
-              matches today&rsquo;s stockout rate at 19% less waste.
-            </li>
+                <!-- naive reference line, 43% -->
+                <line x1="38" y1="85.1" x2="288" y2="85.1" stroke="var(--ink-secondary)" stroke-width="2" stroke-dasharray="6 4"/>
+                <text x="295" y="80.5" font-size="13" fill="var(--ink-secondary)" text-anchor="end">Naive: 43%</text>
 
-          </ul>
+                <!-- Waste-focused: 61% -->
+                <rect x="46" y="51.7" width="36" height="113.3" rx="3" fill="#2A78D6"/>
+                <text x="64" y="45" font-size="14" font-weight="700" fill="#2A78D6" text-anchor="middle">61%</text>
+                <text x="64" y="181" font-size="13" fill="var(--ink-primary)" text-anchor="middle">Waste-focused</text>
 
-          <ul>
-            <li>
-              <strong>Checked against the test week</strong> (same fixed
-              quantiles, not re-picked): naive scores 42.8% stockout days
-              there. Waste-focused and balanced both flip <em>worse</em>, in
-              both model families (54&ndash;61%); only stockout-focused
-              still beats naive (14&ndash;16%).
-            </li>
-          </ul>
+                <!-- Balanced: 54% -->
+                <rect x="149" y="64.7" width="36" height="100.3" rx="3" fill="#1BAF7A"/>
+                <text x="167" y="58" font-size="14" font-weight="700" fill="#1BAF7A" text-anchor="middle">54%</text>
+                <text x="167" y="181" font-size="13" fill="var(--ink-primary)" text-anchor="middle">Balanced</text>
+
+                <!-- Stockout-focused: 16% -->
+                <rect x="252" y="135.3" width="36" height="29.7" rx="3" fill="#EDA100"/>
+                <text x="270" y="128.5" font-size="14" font-weight="700" fill="#EDA100" text-anchor="middle">16%</text>
+                <text x="270" y="181" font-size="13" fill="var(--ink-primary)" text-anchor="middle">Stockout-focused</text>
+
+                <line x1="38" y1="165" x2="288" y2="165" stroke="var(--ink-secondary)" stroke-width="1.2"/>
+              </svg>
+            </div>
+
+            <div class="tradeoff-panel">
+              <svg viewBox="0 0 320 190" role="img"
+                   aria-label="Bar chart, waste percent, TFT, test week, y-axis 0 to 40. Waste-focused 8, Balanced 10, Stockout-focused 40. Dashed reference line at 19, the naive rule's test-week value.">
+                <text x="150" y="14" font-size="15" font-weight="700" fill="var(--ink-primary)" text-anchor="middle">Waste - TFT, test week</text>
+
+                <!-- y-axis: gridlines, ticks, labels (0-45 scale, own axis - not the stockout panel's 0-70) -->
+                <g stroke="var(--ink-muted)" stroke-width="1" opacity="0.25">
+                  <line x1="38" y1="136.1" x2="288" y2="136.1"/>
+                  <line x1="38" y1="107.2" x2="288" y2="107.2"/>
+                  <line x1="38" y1="78.3"  x2="288" y2="78.3"/>
+                  <line x1="38" y1="49.4"  x2="288" y2="49.4"/>
+                </g>
+                <g font-size="11" fill="var(--ink-muted)" text-anchor="end">
+                  <text x="34" y="168">0</text>
+                  <text x="34" y="139.5">10</text>
+                  <text x="34" y="110.6">20</text>
+                  <text x="34" y="81.7">30</text>
+                  <text x="34" y="52.8">40%</text>
+                </g>
+                <line x1="38" y1="35" x2="38" y2="165" stroke="var(--ink-secondary)" stroke-width="1.2"/>
+
+                <!-- naive reference line, 19% -->
+                <line x1="38" y1="110.1" x2="288" y2="110.1" stroke="var(--ink-secondary)" stroke-width="2" stroke-dasharray="6 4"/>
+                <text x="41" y="102" font-size="13" fill="var(--ink-secondary)" text-anchor="start">Naive: 19%</text>
+
+                <!-- Waste-focused: 8% -->
+                <rect x="46" y="141.9" width="36" height="23.1" rx="3" fill="#2A78D6"/>
+                <text x="64" y="135.9" font-size="14" font-weight="700" fill="#2A78D6" text-anchor="middle">8%</text>
+                <text x="64" y="181" font-size="13" fill="var(--ink-primary)" text-anchor="middle">Waste-focused</text>
+
+                <!-- Balanced: 10% -->
+                <rect x="149" y="136.1" width="36" height="28.9" rx="3" fill="#1BAF7A"/>
+                <text x="167" y="130.1" font-size="14" font-weight="700" fill="#1BAF7A" text-anchor="middle">10%</text>
+                <text x="167" y="181" font-size="13" fill="var(--ink-primary)" text-anchor="middle">Balanced</text>
+
+                <!-- Stockout-focused: 40% -->
+                <rect x="252" y="49.4" width="36" height="115.6" rx="3" fill="#EDA100"/>
+                <text x="270" y="43.4" font-size="14" font-weight="700" fill="#EDA100" text-anchor="middle">40%</text>
+                <text x="270" y="181" font-size="13" fill="var(--ink-primary)" text-anchor="middle">Stockout-focused</text>
+
+                <line x1="38" y1="165" x2="288" y2="165" stroke="var(--ink-secondary)" stroke-width="1.2"/>
+              </svg>
+            </div>
+
+          </div>
+
+          <span class="fig-caption">
+            <strong>Figure 3.</strong> Policy comparison, TFT, test week.
+          </span>
 
           <span class="source">
-            Nuance: the sweep&rsquo;s lowest-waste point (q<sub>0.33</sub>)
-            is <em>not</em> the recommendation &mdash; 60% stockout days,
-            worse than today. Validation, full-shelf days, recovered TFT
-            unless noted.
+            Test week only: the sealed, honest evaluation. Dashed line = naive-approach; bars
+            below it beat naive, bars above it don&rsquo;t. Validation
+            figures are in the tag below.
+          </span>
+
+          <span class="tag">
+            Balanced cuts test-week waste to 10% (naive: 19%) but
+            stockout days rise to 54% (naive: 43%) - the reverse
+            of validation, where Balanced beat naive on both (35%
+            stockout days, same waste). Why the reversal: test-week
+            demand ran <strong>~36% higher</strong> than training.
+            Stockout-focused is the only policy beating naive on
+            stockouts in both periods, at far more waste.
+          </span>
+
+          <span class="source">
+            Same reversal on XGBoost. All three stay
+            cheaper than naive on cost at every ratio tested (Final
+            Ordering Decision) - the choice here is which risk to
+            carry, not which saves money.
+          </span>
+
+        </div>
+      </div>
+
+
+      <div class="card">
+        <div class="card__title">One Store, Test Week</div>
+
+        <div class="card__body">
+
+          <p>
+            Store #76 (closest to median in the subset: 43.8% of
+            product-days out of stock, 57 products), at a stockout
+            costing 2&times; a wasted item: stockout days
+            <strong>34.7%</strong> (of product-days); demand met
+            <strong>90.5%</strong>, waste <strong>17.1%</strong> (both
+            % of demand); cheaper than naive <strong>26.6%</strong>
+            (vs. last week&rsquo;s sales).
+          </p>
+
+          <img
+            src="images/store_week_example.png"
+            alt="Bar and line chart: one store's recorded sales, naive order and recommended order, summed across its products, over the sealed test week"
+          style="width:80%">
+
+          <span class="fig-caption">
+            <strong>Figure 4.</strong> One store, test week.
+          </span>
+
+          <span class="source">
+            Illustrative only. The 100-store aggregate is the
+            evidence. Darker shading = more of the store was stocked-out.
           </span>
 
         </div>
@@ -1070,49 +1470,90 @@ sup {
 
     <div class="col-27">
 
+
       <div class="card">
-        <div class="card__title">7. Why TFT and Recovered Data</div>
+        <div class="card__title">Recovery vs. Model Choice</div>
 
         <div class="card__body">
 
-          <span class="headline">
-            The data layer did the work; the model architecture was a
-            confirmation, not the finding.
+          <p>
+            All four versions (TFT/XGBoost &times; raw/recovered) were
+            ordered and scored the same way against the naive rule, at
+            the cost assumption c<sub>u</sub>/c<sub>o</sub>=4 (a stockout
+            costs 4&times; a wasted item), on the sealed test week.
+            Higher is better.
+          </p>
+
+          <span class="table-caption">
+            <strong>Table 2.</strong> Percent cheaper than naive, sealed
+            test week, by architecture and training target.
           </span>
 
+          <table class="stage-table">
+            <tr><th>% cheaper than naive</th><th>Test week</th></tr>
+            <tr><td>TFT, raw</td><td class="stat">9.2%</td></tr>
+            <tr><td>TFT, recovered</td><td class="stat">28.0%</td></tr>
+            <tr><td>XGBoost, raw</td><td class="stat">0.8%</td></tr>
+            <tr><td>XGBoost, recovered</td><td class="stat">13.4%</td></tr>
+          </table>
+
           <ul>
-
             <li>
-              <strong>Recovered over raw</strong>: raw sales are truncated by
-              stockouts, teaching the model that an empty shelf meant low
-              demand. Recovery removes that bias where it occurs.
+              <strong>Recovery&rsquo;s Effect:</strong> fixes censored
+              products specifically - proven on validation (Stage-wise
+              Results: WAPE falls sharply in the chronic band). Test-week
+              demand ran <strong>~36% higher</strong>, so the fix paid off
+              everywhere: up to <strong>+18.8 pts</strong> cheaper than
+              naive.
             </li>
-
             <li>
-              <strong>The payoff, quantified</strong>: on full-shelf (clean)
-              days &mdash; the regime built to penalise recovery &mdash; it
-              recovers far more lost sales than the waste it adds. Pays off
-              once a stockout costs more than ~0.5&times; a binned item on
-              chronic-stockout products (0.87&times; even on the least
-              favourable ones) &mdash; and for fresh food, a stockout is
-              always worse than a bin.
+              <strong>Model Choice&rsquo;s Effect:</strong> real, but
+              smaller - TFT beats XGBoost (<strong>+14.6 pts</strong> cheaper than naive). TFT is the headline model, the
+              more accurate forecast on validation (pinball 0.1074 vs.
+              0.1116).
             </li>
-
-            <li>
-              <strong>TFT over XGBoost, only barely</strong>: pinball 0.1074
-              vs. 0.1116, scored on full-shelf (clean) rows &mdash; a real
-              but modest ~3.9% edge. Run both to prove the recovery result
-              isn&rsquo;t a one-architecture artefact.
-            </li>
-
           </ul>
+
+          <span class="tag">
+            Bottom line: correct the data before you trust the forecast.
+          </span>
 
         </div>
       </div>
 
 
       <div class="card">
-        <div class="card__title">8. Limitations &amp; Future Work</div>
+        <div class="card__title">Novelty</div>
+
+        <div class="card__body">
+
+          <ul>
+            <li>
+              <strong>Not just a new model:</strong> a two-stage
+              LightGBM correction turns censored demand into a cleaner
+              target; testing TFT and XGBoost on both raw and corrected
+              data isolates architecture from that fix.
+            </li>
+            <li>
+              <strong>All the way to an order:</strong> the pipeline
+              runs to an order quantity (newsvendor, split-CQR
+              calibrated), judged on cost, waste and stockouts, not
+              accuracy alone.
+            </li>
+          </ul>
+
+          <!-- <span class="source">
+            Wang et al. (2025) name perishable inventory optimization a
+            direction their dataset opens, not one it addresses; this
+            project is that next step.
+          </span> -->
+
+        </div>
+      </div>
+
+
+      <div class="card">
+        <div class="card__title">Limitations &amp; Future Work</div>
 
         <div class="card__body">
 
@@ -1120,59 +1561,73 @@ sup {
             A proof of concept on a dataset that records sales, not stock.
           </span>
 
-          <ul>
+          <span class="table-caption">
+            <strong>Table 3.</strong> Known limitations and what they mean.
+          </span>
 
-            <li>
-              <strong>No ground truth for stockout-day demand</strong>
-              &mdash; it&rsquo;s fundamentally unobservable, so every result
-              here is scored on &ldquo;clean&rdquo; (full-shelf) days, the
-              only days recorded sales equal true demand. Closing this gap
-              needs real stock-on-hand data, not a better test.
-            </li>
-
-            <li>
-              The chronic-stockout result rests on just 1,375 rows
-              from one seeded subset draw.
-            </li>
-
-            <li>
-              The cost ratio is an assumption, swept rather than known.
-            </li>
-
-            <li>
-              Every number here is a ratio or a percentage &mdash; the sales
-              figure is normalised by an undisclosed coefficient, so no
-              absolute unit count is ever asserted.
-            </li>
-
-            <li>
-              Everything degrades with distance from calibration
-              &mdash; test-week figures are the honest ones.
-            </li>
-
-            <li>
-              <strong>Future work</strong>:
-              stock-on-hand/delivery data would turn recovery&rsquo;s central
-              assumption into a direct measurement; recorded spoilage would
-              make waste an observed outcome, not an arithmetic one.
-            </li>
-
-          </ul>
+          <div class="finding-grid finding-grid--compact">
+            <div class="finding-box">
+              <span class="finding-box__title">No true demand on stockout days</span>
+              <p>Checked on full-shelf days instead; no stock-on-hand
+                data to confirm the worst days directly.</p>
+            </div>
+            <div class="finding-box">
+              <span class="finding-box__title">One store sample, one calendar</span>
+              <p>One random draw of 100 stores. We tested how much
+                savings could wobble, not a different draw&rsquo;s winner.</p>
+            </div>
+            <div class="finding-box">
+              <span class="finding-box__title">Cost ratio is assumed</span>
+              <p>Tested across a range (Final Ordering Decision), not
+                measured.</p>
+            </div>
+            <div class="finding-box">
+              <span class="finding-box__title">Future work</span>
+              <p>Stock-on-hand/delivery data would confirm recovery
+                directly; recorded spoilage would make waste observed.</p>
+            </div>
+          </div>
 
         </div>
       </div>
 
 
       <div class="card">
-        <div class="card__title">9. References</div>
+        <div class="card__title">Conclusion</div>
+
+        <div class="card__body">
+
+          <span class="headline">
+            Fixing the data mattered more than the model.
+          </span>
+
+          <p>
+            A stockout corrupts the training label, not just the sale
+            (previous card). A better architecture can&rsquo;t
+            undo a bias baked into the data; only recovering it can.
+          </p>
+
+          <span class="tag">
+            Bottom line: every policy tested is cheaper than
+            <em>&ldquo;order what sold last week&rdquo;</em>.
+            Which one to run is a store&rsquo;s call, based on whether
+            stockouts or waste cost it more.
+          </span>
+
+        </div>
+      </div>
+
+
+      <div class="card">
+        <div class="card__title">References</div>
 
         <div class="card__body references">
           <ul>
-            <li>Dingdong Inc. (2024). <em>FreshRetailNet-50K</em> dataset (Hugging Face).</li>
-            <li>Lim et al. (2021). Temporal Fusion Transformers.</li>
-            <li>Romano, Patterson &amp; Cand&egrave;s (2019). Conformalized Quantile Regression.</li>
-            <li>Vovk, Gammerman &amp; Shafer (2005). Algorithmic Learning in a Random World.</li>
-            <li>Arrow, Harris &amp; Marschak (1951). Optimal inventory policy (newsvendor).</li>
+            <li>European Commission (2025). Revised Waste Framework Directive (binding 2030 food-waste targets).</li>
+            <li>Lim et al. (2021). Temporal Fusion Transformers for interpretable multi-horizon forecasting.</li>
+            <li>Makridakis et al. (2022). The M5 uncertainty competition.</li>
+            <li>Spiliotis et al. (2022). Statistical vs. machine learning methods for SKU demand forecasting.</li>
+            <li>Wang et al. (2025). <em>FreshRetailNet-50K</em> (arXiv:2505.16319).</li>
           </ul>
         </div>
       </div>

@@ -150,8 +150,8 @@ SUBSET_SUMMARY_MD = """# Working subset
 {table}
 
 The subset is **{share} of the corpus** at ~{per_store} series per store. Matching the corpus on
-units/day and censored-day share is what makes it representative: nothing is selected on sales
-volume, so no scope restriction has to be declared.
+normalised sale amount and the share of censored product-days is what makes it representative:
+nothing is selected on sales volume, so no scope restriction has to be declared.
 
 A further **{eval_rows} rows** of shipped eval data are held back for the final evaluation and are
 not read by any earlier stage.

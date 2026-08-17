@@ -1,0 +1,4 @@
+cohort,n_stockout_days,share_of_stockout_days_pct,recovers_before_close_pct,stays_out_through_close_pct,single_unbroken_run_pct
+already empty at opening (06:00),21016,13.4,28.4,71.6,86.8
+goes empty later (07:00-21:00),135953,86.6,10.2,89.8,95.4
+ALL stockout days,156969,100.0,12.6,87.4,94.2
