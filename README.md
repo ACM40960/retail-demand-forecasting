@@ -261,24 +261,6 @@ model under-forecasts by 20.2% and the recovered model by 0.3%. That is the mech
 designed: censoring hides demand only where shelves empty, so products that rarely sell out have
 nothing to give back.
 
-**The trade that decides it**: at q50, on full-shelf days only, the regime that *penalises*
-recovery. XGBoost arm:
-
-| products that sell out | lost sales recovered | waste added | pays once a stockout costs more than |
-|---|---|---|---|
-| rarely | 5.3 pts | 4.6 pts | **0.87×** a bin |
-| sometimes | 4.8 pts | 5.9 pts | **1.23×** a bin |
-| often | 6.1 pts | 6.6 pts | **1.08×** a bin |
-| **constantly** | **13.7 pts** | 6.9 pts | **0.50×** a bin |
-
-The TFT arm agrees: 0.94× / 1.13× / 1.01× / **0.49×**.
-
-**This is the strongest defensible claim in the project**, and it needs no accuracy improvement to
-be true. Recovery pays wherever an empty shelf costs more than roughly 1.2× a binned item, and on
-chronic-stockout products once a stockout costs even half a bin. For fresh food a stockout is
-always worse than a bin. WAPE cannot express this, because it charges a unit too many and a unit
-too few identically.
-
 **Calibration**, split-CQR, offset fitted on the calibration window only:
 
 | band | window | before | after | target |
