@@ -1,0 +1,3 @@
+window,point,ci_low,ci_high,n_days
+validation,34.72,29.98,39.37,14
+test,27.97,25.42,31.36,7

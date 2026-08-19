@@ -1,0 +1,5 @@
+period,avg_sale_amount_per_clean_day
+training,0.9224410251559437
+validation,1.0275584448056008
+calibration,1.125698076752243
+test,1.2505088453978292

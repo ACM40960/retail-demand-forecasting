@@ -11,6 +11,8 @@ works with `st.pyplot`.
 import pandas as pd
 import matplotlib.pyplot as plt
 
+from .poster import PALETTE, _QUANTILE_COLORS
+
 
 def plot_recovery_overlay(series_df: pd.DataFrame, title_suffix: str = ""):
     """Recorded sales vs. recovered demand for ONE series (already filtered), stockout days
@@ -26,7 +28,7 @@ def plot_recovery_overlay(series_df: pd.DataFrame, title_suffix: str = ""):
     ax.set_ylabel("sale_amount (normalized, not physical units - README §4)")
     ax.legend(loc="upper right")
     fig.tight_layout()
-    plt.close(fig) 
+    plt.close(fig)
     return fig
 
 
@@ -140,4 +142,164 @@ def plot_learning_curves(curves: dict, save_path=None):
     plt.close(fig)
     if save_path is not None:
         fig.savefig(save_path, dpi=300)   # print resolution - A0 poster, not just notebook display
+    return fig
+
+
+def plot_store_product_week(week_df: pd.DataFrame, store_id, product_id):
+    """One store-product's test week (app/pages/8_One_Store.py): recorded sales, stockout days
+    shaded, the naive order and the recommended order at the chosen cost ratio - both decided
+    BEFORE the day, so both are drawn as lines against what actually sold that day, stockout day
+    or not. Screen figure, not a poster one - no save_path, no print-resolution export."""
+    d = week_df.sort_values("dt")
+    ceiling = pd.concat([d["sale_amount"], d["naive_order_quantity"],
+                        d["model_order_quantity"]]).max() * 1.08
+
+    fig, ax = plt.subplots(figsize=(9, 4.3))
+    ax.bar(d["dt"], d["sale_amount"], color=PALETTE["flat"], width=0.7, label="recorded sales")
+    ax.fill_between(d["dt"], 0, ceiling, where=d["stock_hour6_22_cnt"] > 0,
+                    color="grey", alpha=0.15, step="mid", label="stockout day")
+    ax.plot(d["dt"], d["naive_order_quantity"], marker="o", linestyle=":",
+            color=PALETTE["naive"], label="naive order (last week's sales)")
+    ax.plot(d["dt"], d["model_order_quantity"], marker="o",
+            color=PALETTE["tft"], label="recommended order")
+    ax.set_title(f"Store {store_id}, product {product_id} - test week")
+    ax.set_ylabel("units (normalized)")
+    ax.set_ylim(0, ceiling)
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.27), ncol=4, fontsize=8, frameon=False)
+    fig.autofmt_xdate(rotation=30)
+    fig.subplots_adjust(left=0.09, right=0.98, top=0.91, bottom=0.30)
+    plt.close(fig)
+    return fig
+
+
+def plot_store_week(store_df: pd.DataFrame, store_id, save_path=None):
+    """Whole store's test week (app/pages/8_One_Store.py): every product's recorded sales, naive
+    order and recommended order summed per day, stockout share shaded. Store-level sibling of
+    `plot_store_product_week` - same three series, summed across products instead of one.
+
+    A store carries dozens of products, so on any given day SOME product is almost always out of
+    stock - the boolean shading `plot_store_product_week` uses at product level would shade every
+    single day here and say nothing (verified: 28-56% of this store's products are out on EVERY
+    day of its test week). Shading intensity instead tracks the SHARE of products stocked out that
+    day, so a quiet day and a bad day look different."""
+    d = store_df.groupby("dt", as_index=False).agg(
+        sale_amount=("sale_amount", "sum"),
+        naive_order_quantity=("naive_order_quantity", "sum"),
+        model_order_quantity=("model_order_quantity", "sum"),
+        stockout_share=("stock_hour6_22_cnt", lambda s: (s > 0).mean()),
+    ).sort_values("dt")
+    ceiling = pd.concat([d["sale_amount"], d["naive_order_quantity"],
+                        d["model_order_quantity"]]).max() * 1.08
+
+    fig, ax = plt.subplots(figsize=(9, 4.3))
+    ax.bar(d["dt"], d["sale_amount"], color=PALETTE["flat"], width=0.7,
+           label="recorded sales (all products)")
+    half_day = pd.Timedelta(hours=12)
+    for dt, share in zip(d["dt"], d["stockout_share"]):
+        ax.axvspan(dt - half_day, dt + half_day, color="grey", alpha=0.5 * share, linewidth=0)
+    ax.plot(d["dt"], d["naive_order_quantity"], marker="o", linestyle=":",
+            color=PALETTE["naive"], label="naive order (last week's sales)")
+    ax.plot(d["dt"], d["model_order_quantity"], marker="o",
+            color=PALETTE["tft"], label="recommended order")
+    ax.set_title(f"Store {store_id} - all products, test week")
+    ax.set_ylabel("units (normalized)")
+    ax.set_ylim(0, ceiling)
+    ax.legend(loc="upper center", bbox_to_anchor=(0.5, -0.27), ncol=3, fontsize=10, frameon=False)
+    fig.autofmt_xdate(rotation=30)
+    fig.subplots_adjust(left=0.09, right=0.98, top=0.91, bottom=0.30)
+    plt.close(fig)
+    if save_path is not None:
+        # tight bbox trims the dead canvas below the legend instead of relying on a hand-tuned
+        # bottom margin - the poster copy is a saved PNG, not an interactive figure, so cropping to
+        # content only here (not in the returned `fig`) doesn't affect the Streamlit app's display.
+        fig.savefig(save_path, dpi=300, bbox_inches="tight", pad_inches=0.08)
+    return fig
+
+
+def plot_operating_points(table: pd.DataFrame):
+    """Three operating points against the naive rule, on the three metrics that matter at once
+    (app/pages/5_Operating_Point.py) - a screen-sized sibling of `poster.fig_quantile_anchors`:
+    same data, same colors (`poster._QUANTILE_COLORS`), normal screen size instead of
+    300dpi/24pt poster type. `table` is indexed ["naive", "waste-focused", "balanced",
+    "stockout-focused"] in that order, columns "ran out %"/"demand met %"/"waste % of demand"."""
+    fig, axes = plt.subplots(1, len(table.columns), figsize=(10.5, 3.6))
+    colors = _QUANTILE_COLORS[:len(table)]
+    for ax, col in zip(axes, table.columns):
+        bars = ax.bar(table.index, table[col], color=colors)
+        for bar, v in zip(bars, table[col]):
+            ax.annotate(f"{v:.1f}", xy=(bar.get_x() + bar.get_width() / 2, v), xytext=(0, 3),
+                        textcoords="offset points", ha="center", fontsize=8)
+        ax.set_ylabel(col)
+        ax.set_ylim(0, table[col].max() * 1.28)
+        ax.tick_params(axis="x", labelrotation=20, labelsize=8)
+        ax.grid(axis="y", alpha=0.25, linewidth=0.6)
+        ax.set_axisbelow(True)
+    fig.suptitle("Three operating points against today", fontsize=11)
+    fig.tight_layout()
+    plt.close(fig)
+    return fig
+
+
+# ---------------------------------------------------------------- EDA (app/pages/2_EDA.py)
+def plot_censoring_distribution(values: pd.Series, unit: str, highlight_value: float = None,
+                                highlight_label: str = "picked"):
+    """Histogram of one population's censored-day share (per-store or per-product), median
+    marked, with an optional second marker - e.g. where the One Store pick sits among all 100
+    stores, so that choice reads as "typical", not asserted as typical."""
+    fig, ax = plt.subplots(figsize=(8, 4.2))
+    ax.hist(values * 100, bins=20, color=PALETTE["recovered"], alpha=0.85,
+           edgecolor="white", linewidth=0.6, zorder=3)
+    top = ax.get_ylim()[1]
+
+    med = float(values.median()) * 100
+    ax.axvline(med, color=PALETTE["muted"], linestyle="--", linewidth=1.3, zorder=4)
+    ax.annotate(f"median {med:.0f}%", xy=(med, top * 0.96), xytext=(6, -4),
+               textcoords="offset points", fontsize=9, color=PALETTE["muted"])
+
+    if highlight_value is not None:
+        hv = float(highlight_value) * 100
+        ax.axvline(hv, color=PALETTE["raw"], linewidth=2.2, zorder=5)
+        ax.annotate(highlight_label, xy=(hv, top * 0.8), xytext=(6, 0),
+                   textcoords="offset points", fontsize=9, fontweight="bold",
+                   color=PALETTE["raw"])
+
+    ax.set_xlabel(f"share of days censored, per {unit} (%)")
+    ax.set_ylabel(f"number of {unit}s")
+    ax.grid(axis="y", alpha=0.25, linewidth=0.6, zorder=0)
+    ax.set_axisbelow(True)
+    for s in ("top", "right"):
+        ax.spines[s].set_visible(False)
+    fig.tight_layout()
+    plt.close(fig)
+    return fig
+
+
+def plot_ranked_bar(df: pd.DataFrame, id_col: str, value_col: str, n: int = 15,
+                    direction: str = "highest", highlight_id=None, id_prefix: str = "#",
+                    xlabel: str = ""):
+    """Horizontal bar of the N `direction` (`"highest"` or `"lowest"`) `value_col` rows,
+    direct-labeled, largest-magnitude entry at the top either way. Lets the EDA page's own toggle
+    decide whether this reads as "most affected" or "least affected" rather than baking a value
+    judgement into the function. `highlight_id`, if it lands inside the N shown, prints in a
+    second color so one specific store/product stands out against the rest of the ranking."""
+    picker = df.nlargest if direction == "highest" else df.nsmallest
+    top = picker(n, value_col)
+    top = top.iloc[::-1] if direction == "highest" else top   # barh draws bottom-up either way
+    colors = [PALETTE["raw"] if highlight_id is not None and row[id_col] == highlight_id
+             else PALETTE["recovered"] for _, row in top.iterrows()]
+
+    fig, ax = plt.subplots(figsize=(8, 0.36 * len(top) + 1.4))
+    bars = ax.barh([f"{id_prefix}{v}" for v in top[id_col]], top[value_col] * 100,
+                  color=colors, zorder=3)
+    for bar, v in zip(bars, top[value_col]):
+        ax.annotate(f"{v * 100:.0f}%", xy=(bar.get_width(), bar.get_y() + bar.get_height() / 2),
+                   xytext=(4, 0), textcoords="offset points", va="center", fontsize=9)
+    ax.set_xlabel(xlabel)
+    ax.set_xlim(0, top[value_col].max() * 100 * 1.16)
+    ax.grid(axis="x", alpha=0.25, linewidth=0.6, zorder=0)
+    ax.set_axisbelow(True)
+    for s in ("top", "right"):
+        ax.spines[s].set_visible(False)
+    fig.tight_layout()
+    plt.close(fig)
     return fig

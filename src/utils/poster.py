@@ -360,13 +360,13 @@ _QUANTILE_COLORS = ["#898781", "#2a78d6", "#eb6834", "#1baf7a"]
 
 # ---------------------------------------------------------------- 7. the tradeoff (poster image)
 def fig_quantile_anchors(save: bool = True):
-    """Three operating points against the status quo, on the three metrics that matter at once.
+    """Three operating points against the naive rule, on the three metrics that matter at once.
     Reads `conclusion_quantile_map.csv` (notebook 04's E5) - validation, full-shelf days,
     recovered TFT. This is the image `poster/poster.html` Card 6 embeds.
 
-    The naive/"today" baseline isn't re-run from the pipeline: every row already reports its own
-    waste relative to it (`waste vs today %`), so it is recovered algebraically from the one row
-    where that column is exactly 0 - q0.513, the waste-neutral point by construction.
+    The naive baseline isn't re-run from the pipeline: every row already reports its own waste
+    relative to it (`waste vs naive %`), so it is recovered algebraically from the one row where
+    that column is exactly 0 - q0.513, the waste-neutral point by construction.
     """
     df = pd.read_csv(config.REPORTS_DIR / "conclusion_quantile_map.csv").set_index("order at")
     neutral = df.loc["q0.513"]   # the row where "waste vs today %" is exactly 0, by construction
@@ -374,11 +374,11 @@ def fig_quantile_anchors(save: bool = True):
     # neutral's waste is v and it's reported as 0% different from today, today's waste is also v -
     # this just makes that algebra explicit for the general case where the saved % isn't exactly 0
     naive = {"ran out %": 41.7, "demand met %": 79.9,
-             "waste % of demand": neutral["waste % of demand"] / (1 - neutral["waste vs today %"] / 100)}
+             "waste % of demand": neutral["waste % of demand"] / (1 - neutral["waste vs naive %"] / 100)}
 
     metrics = [("ran out %", "stockout days (%)"), ("demand met %", "demand met (%)"),
               ("waste % of demand", "waste (% of demand)")]
-    names = ["today"] + [label for label, _ in _QUANTILE_PICKS]
+    names = ["naive"] + [label for label, _ in _QUANTILE_PICKS]
 
     with mpl.rc_context(POSTER_RC):
         fig, axes = plt.subplots(1, 3, figsize=(30, 6.8))
@@ -390,7 +390,7 @@ def fig_quantile_anchors(save: bool = True):
             ax.tick_params(axis="x", rotation=14)
             ax.set_ylim(0, max(values) * 1.24)
             ax.grid(axis="x", visible=False)
-        fig.suptitle("Three operating points against the status quo")
+        fig.suptitle("Three operating points against the naive rule")
         fig.tight_layout()
     return _finish(fig, "quantile_anchors", save, dest=IMAGES_DIR)
 
