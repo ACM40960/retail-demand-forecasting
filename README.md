@@ -174,9 +174,9 @@ against recorded sales would reward under-ordering, which is the failure being f
 
 **Design rules**
 
-- **All logic lives in `src/`.** Notebooks and the dashboard are thin callers, so the science has
+- **All logic lives in `src/`.** Notebooks and the poster are thin callers, so the science has
   exactly one implementation.
-- **The dashboard reads saved files only** and never recomputes.
+- **The poster reads saved files only** and never recomputes.
 - **The subset is seeded and self-describing** — it rebuilds from two numbers.
 - **Splits, once frozen, never move.** The test week is touched once.
 
@@ -364,7 +364,9 @@ src/                        all logic — a library, no CLI entry points
     features.py             lag/rolling features, hourly explode, censoring bands
     metrics.py              WAPE / WPE / MAE / pinball / CRPS, matching the dataset's protocol,
                             plus the per-band and lost-sales-vs-waste tables
-    plots.py                figures
+    plots.py                notebook/report figures
+    poster.py               the six A0-poster figures, each rebuilt from a committed report CSV
+                            (see poster/ below) — never a second computation of a result
   splits.py                 frozen calendar + the leakage suite
   baselines.py              seasonal-naive · SARIMA · XGBoost-quantile · recovery_impact
   recovery.py               the novel layer: Stage 1, Stage 2, correction, model selection
@@ -378,6 +380,9 @@ notebooks/
   02_forecast_tft.ipynb           TFT search and fit, raw-vs-recovered         hours (GPU)
   03_forecast_xgb.ipynb           the tree, and the cross-architecture check   ~1 h (CPU)
   04_ordering_and_results.ipynb   calibration, the four arms, the cost sweep   ~5 min
+  05_poster_results.ipynb         reproduces every number and chart on the    ~5 min
+                                   poster from the same saved artifacts, so the poster
+                                   can be checked rather than trusted
 
 outputs/                    every reported number, as written by the code — split by artifact KIND
   reports/                  csv / json / md — everything with numbers in it
@@ -385,6 +390,13 @@ outputs/                    every reported number, as written by the code — sp
   forecasts/{tft,xgb}/      saved quantile forecasts and their corrected intervals, per arm
   plots/                    png
   models/                   fitted models that must outlive the kernel
+
+poster/
+  poster.html                the A0 poster; card text is written by hand, its numbers and
+                              figures are copied from outputs/reports and poster/images
+  images/                     the three figures poster.html embeds, built by `poster.py`
+                              from the same committed CSVs — a figure can never disagree
+                              with the table it came from
 
 data/processed/             the working subset (rebuildable, mostly gitignored)
                             recovered parquets ARE committed, so notebook 02 runs in Colab
@@ -397,8 +409,11 @@ never pasted. The per-band scorecard and the lost-sales-vs-waste table are share
 and 03 for exactly this reason: a second copy is how the transformer's table and the tree's table
 would silently stop being the same measurement.
 
-This README is the project's only prose document. Everything else committed here is either code or
-an artifact the code wrote, so nothing in the repo can fall out of date with the numbers.
+This README and `poster/poster.html` are the project's only prose. Everything else committed here
+is either code or an artifact the code wrote. The poster's card text and headline numbers are typed
+by hand rather than generated, which is exactly what notebook 05 exists to keep honest: it
+recomputes every figure and number the poster shows, straight from the same saved artifacts, so a
+stale card would be caught rather than repeated.
 
 Each notebook is independent — it reads what it needs from disk and says which notebook to run if
 something is missing. Only a cold start needs them in order.
