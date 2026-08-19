@@ -267,8 +267,13 @@ def _forecast_week(model, training, frame: pd.DataFrame, last_day: int) -> pd.Da
     batch = 1024 if _select_accelerator("auto") != "cpu" else 256
     out = model.predict(ds.to_dataloader(train=False, batch_size=batch), mode="quantiles",
                         return_index=True)
+    # preds comes back shaped (n_series, HORIZON, n_quantiles): one 7-day, six-quantile block per
+    # series. index has one row per series (the group_ids and the time_idx the encoder ended at).
     preds, index = out.output.cpu().numpy(), out.index.reset_index(drop=True)
 
+    # unstack the HORIZON axis into HORIZON separate day-frames, each one row per series, then
+    # concatenate them - "step" counts 0..6 days ahead, so time_idx + step turns the encoder's end
+    # date into the actual calendar day each column of preds is forecasting
     days = []
     for step in range(preds.shape[1]):
         day = index[["store_id", "product_id"]].copy()
@@ -284,9 +289,12 @@ def forecast_period(model, training, daily: pd.DataFrame, start: str, end: str) 
     frame = _prepare(daily)
     lo, hi = _day(frame, start), _day(frame, end)
 
+    # step through the window HORIZON days at a time: _forecast_week always predicts the 7 days
+    # ENDING at the day it's given, so starting at lo + HORIZON - 1 makes the first block's last
+    # day line up exactly with lo, and each later block picks up where the previous one left off
     fc = pd.concat([_forecast_week(model, training, frame, d)
                     for d in range(lo + HORIZON - 1, hi + 1, HORIZON)], ignore_index=True)
-    fc = fc[(fc.time_idx >= lo) & (fc.time_idx <= hi)]
+    fc = fc[(fc.time_idx >= lo) & (fc.time_idx <= hi)]   # trim any overshoot past the window's end
 
     keys = ["store_id", "product_id", "time_idx"]
     actuals = frame[keys + ["dt"] + [c for c in CARRY if c in frame.columns]]
@@ -320,13 +328,16 @@ def tune(daily: pd.DataFrame, tag: str = "recovered", max_epochs: int = 15,
     path = config.tft_tuning(tag)
     combos = [dict(zip(GRID, values)) for values in itertools.product(*GRID.values())]
 
+    # resume support: load whatever's already on disk from a previous (possibly interrupted) run
     rows = pd.read_csv(path).to_dict("records") if path.exists() else []
     valid = {_config_id(cfg) for cfg in combos}
+    # keep only rows whose config still belongs to the CURRENT grid; anything else is a leftover
+    # from a grid that has since been edited, and gets reported rather than silently kept
     rows, dropped = [r for r in rows if r["config_id"] in valid], \
                     [r for r in rows if r["config_id"] not in valid]
     if dropped:
         print(f"discarded {len(dropped)} row(s) from a previous grid", flush=True)
-    done = {r["config_id"] for r in rows}
+    done = {r["config_id"] for r in rows}   # configs already scored - skipped in the loop below
 
     for i, cfg in enumerate(combos, 1):
         if _config_id(cfg) in done:

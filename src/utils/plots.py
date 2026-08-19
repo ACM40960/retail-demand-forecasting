@@ -104,7 +104,7 @@ def plot_learning_curves(curves: dict, save_path=None):
     fig, axes = plt.subplots(1, len(have), figsize=(6.5 * len(have), 4.5), squeeze=False)
     for ax, (fam, curve) in zip(axes[0], have):
         x, train_col, val_col, xlabel = _CURVE_COLS[fam]
-        best = curve.loc[curve[val_col].idxmin()]
+        best = curve.loc[curve[val_col].idxmin()]   # the row where validation loss is lowest
 
         ax.plot(curve[x], curve[train_col], color="tab:blue", linewidth=2, label="training")
         ax.plot(curve[x], curve[val_col], color="tab:red", linewidth=2, label="validation")

@@ -127,8 +127,13 @@ class SeriesHourMean:
 
     def predict(self, X: pd.DataFrame) -> np.ndarray:
         def lookup(table, cols):
+            # reindex, not merge: a combination that was never seen during fit (e.g. this exact
+            # store/product/hour never sold in training) comes back NaN instead of raising
             return table.reindex(pd.MultiIndex.from_frame(X[cols])).to_numpy()
 
+        # three-level fallback, most specific first: try this exact (store, product, hour) mean;
+        # anywhere that's NaN (never seen at fit time), fall back to the (product, hour) mean across
+        # all stores; anywhere that's still NaN, fall back to the plain (hour) mean across everything
         pred = lookup(self.sp_hour, ["store_id", "product_id", "hour"])
         pred = np.where(np.isnan(pred), lookup(self.p_hour, ["product_id", "hour"]), pred)
         return np.where(np.isnan(pred), self.g_hour.reindex(X["hour"]).to_numpy(), pred)
@@ -167,11 +172,14 @@ def training_hours(hourly: pd.DataFrame) -> pd.DataFrame:
 def _stage2(hourly: pd.DataFrame, model, bias_correction: float) -> pd.DataFrame:
     """Replace each stocked-out 06:00-22:00 hour with the corrected prediction, floored at what was
     observed; keep every other hour as-is; sum to a daily `recovered_demand`."""
+    # predict every hour (cheaper than predicting only the stocked-out ones, and simpler code),
+    # then only the stocked-out active-window hours below actually use the prediction
     expected = np.clip(model.predict(_model_matrix(hourly)), 0, None) * bias_correction
     in_window = (hourly["hour"] >= ACTIVE_LO) & (hourly["hour"] < ACTIVE_HI)
     recovered = np.where((hourly["hour_stockout"] == 1) & in_window,
                          np.maximum(expected, hourly["hour_sale"]),   # floor at observed
                          hourly["hour_sale"])                         # in-stock / off-window
+    # sum the 24 (mostly recorded, sometimes recovered) hours back into one daily total per series
     return (hourly.assign(hour_recovered=recovered)
             .groupby(KEY, as_index=False).agg(recovered_demand=("hour_recovered", "sum")))
 
@@ -182,20 +190,24 @@ def _recover_test_days(hourly: pd.DataFrame, test_days: pd.DataFrame, make_model
     """Recover `test_days` as if every 06:00-22:00 hour had been stocked out; return their daily
     totals. Stage 1 is trained with those days held out, so it predicts days it has never seen -
     without that, the score would measure memorisation."""
+    # a row-level mask: True for every hourly row that belongs to one of the held-out test days
     is_test = pd.Series(   # MultiIndex.isin, not a set of tuples: same mask, far faster
         pd.MultiIndex.from_frame(hourly[KEY]).isin(pd.MultiIndex.from_frame(test_days[KEY])),
         index=hourly.index)
 
+    # fit only on stocked, training-period hours that are NOT part of a held-out test day
     train = training_hours(hourly)
     train = train[~is_test.loc[train.index]]
     model = make_model(random_state)
     model.fit(_model_matrix(train), train["hour_sale"].values)
 
+    # now predict every hour of the held-out days as if it had been stocked out, regardless of
+    # whether it actually was - that's what turns a full-shelf day into a fair test of recovery
     held_out = hourly[is_test].copy()
     expected = np.clip(model.predict(_model_matrix(held_out)), 0, None)
     in_window = (held_out["hour"] >= ACTIVE_LO) & (held_out["hour"] < ACTIVE_HI)
     held_out["recovered"] = np.where(in_window, expected, held_out["hour_sale"])
-    return held_out.groupby(KEY)["recovered"].sum()
+    return held_out.groupby(KEY)["recovered"].sum()   # one recovered daily total per held-out day
 
 
 def evaluate(daily: pd.DataFrame, make_model=stage1_lgbm, n_days: int = N_TEST_DAYS,
@@ -343,11 +355,11 @@ def bias_by_censoring(recovered: pd.DataFrame) -> pd.DataFrame:
             / (hours_open - recovered["stock_hour6_22_cnt"]).sum())   # the average in-stock hour
     cens["constant_fill"] = cens["sale_amount"] + cens["stock_hour6_22_cnt"] * flat
 
-    def summarise(d):
+    def summarise(d):   # one censoring band's worth of rows in, one summary row out
         recorded, rec = d["sale_amount"].sum(), d["recovered_demand"].sum()
         flat_fill = d["constant_fill"].sum()
-        model_uplift = (rec / recorded - 1) * 100
-        flat_uplift = (flat_fill / recorded - 1) * 100
+        model_uplift = (rec / recorded - 1) * 100    # % the model adds over recorded sales
+        flat_uplift = (flat_fill / recorded - 1) * 100   # % the naive flat filler adds, for comparison
         return pd.Series({"days": len(d),
                           "recorded_mean": d["sale_amount"].mean(),
                           "recovered_mean": d["recovered_demand"].mean(),

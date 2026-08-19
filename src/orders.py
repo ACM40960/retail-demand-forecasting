@@ -97,11 +97,20 @@ def _tau_breakpoints(df: pd.DataFrame, qcols: dict) -> tuple:
     `np.maximum.accumulate` enforces monotonicity per row (a corrected band can, rarely, cross a
     neighbouring uncorrected quantile - "quantile crossing", the standard fix).
     Returns (taus sorted incl. 0/1, values array shape (n_rows, n_taus))."""
-    taus = sorted(qcols)
-    vals = np.column_stack([df[qcols[t]].to_numpy(dtype=float) for t in taus])
+    taus = sorted(qcols)   # e.g. [0.1, 0.5, 0.9] - the x-axis this row's demand curve is built on
+    vals = np.column_stack([df[qcols[t]].to_numpy(dtype=float) for t in taus])   # (n_rows, n_taus)
+
+    # extend the curve past the highest saved quantile by continuing the last segment's slope in a
+    # straight line out to tau=1, rather than just repeating the last value - a flat tail would say
+    # "demand never exceeds q90", which the model was never actually asked to claim
     top_gap = vals[:, -1] - vals[:, -2]                     # slope of the last saved segment
     extrapolated_top = vals[:, -1] + top_gap * ((1 - taus[-1]) / (taus[-1] - taus[-2]))
+
+    # stitch together tau=0 (0 units), the saved quantiles, and the extrapolated tau=1 into one row
     vals = np.column_stack([np.zeros(len(df)), vals, np.maximum(extrapolated_top, vals[:, -1])])
+    # force each row non-decreasing left to right and non-negative: conformal correction can rarely
+    # push a corrected quantile past its neighbour ("quantile crossing"), which would otherwise make
+    # the interpolation in order_quantity read backwards
     vals = np.maximum(np.maximum.accumulate(vals, axis=1), 0.0)
     return np.array([0.0] + taus + [1.0]), vals
 
@@ -110,11 +119,14 @@ def order_quantity(df: pd.DataFrame, q_star: float, qcols: dict = None) -> np.nd
     """The order quantity at the newsvendor critical fractile `q_star`, read off each row's
     (corrected) predictive distribution by linear interpolation between saved quantiles."""
     qcols = qcols or CANONICAL_QCOLS
-    taus, vals = _tau_breakpoints(df, qcols)
+    taus, vals = _tau_breakpoints(df, qcols)   # the shared x-axis, and every row's y-values on it
     q_star = float(np.clip(q_star, 0.0, 1.0))
+    # find which two breakpoints q_star falls between (e.g. between q10 and q50), then linearly
+    # interpolate the order quantity between them - clipped to [1, len-1] so q_star=0 or 1 still
+    # has a real segment either side of it to interpolate within, rather than reading off the edge
     idx = int(np.clip(np.searchsorted(taus, q_star, side="left"), 1, len(taus) - 1))
     t0, t1 = taus[idx - 1], taus[idx]
-    frac = 0.0 if t1 == t0 else (q_star - t0) / (t1 - t0)
+    frac = 0.0 if t1 == t0 else (q_star - t0) / (t1 - t0)   # 0 at t0, 1 at t1, in between elsewhere
     return vals[:, idx - 1] + frac * (vals[:, idx] - vals[:, idx - 1])
 
 
@@ -294,16 +306,22 @@ def at_demand_met(frames: dict, target_demand_met: float = 0.95, regime: str = "
     Each arm's own order percentile is solved for and reported too - a lower one for the same
     demand-met share means the forecast is better centred and needs less over-ordering to get there.
     """
-    grid = np.arange(0.50, 0.996, 0.005)
+    grid = np.arange(0.50, 0.996, 0.005)   # every order percentile from the 50th to the 99.5th
     rows = []
     for name, (df, qcols) in frames.items():
         demand, mask = realised_demand(df, regime)
+        # for THIS arm, order at every percentile in the grid and record what demand-met, waste and
+        # stockouts each one produces - each arm gets its own curve, since raw and recovered need
+        # different percentiles to reach the same real-world availability (see the docstring)
         met, waste, stockout = [], [], []
         for q in grid:
             sim = simulate(order_quantity(df, q, qcols)[mask], demand)
             met.append(1 - sim.shortfall.sum() / demand.sum())
             waste.append(100 * sim.waste.sum() / demand.sum())
             stockout.append(100 * sim.stockout.mean())
+        # np.interp reads the grid "backwards": given a target demand-met value, find the percentile
+        # that would have produced it, by interpolating along the (grid, met) curve just built above.
+        # Then re-use that same interpolation position to read off the matching waste and stockout.
         rows.append({"arm": name,
                      "order_percentile": round(float(np.interp(target_demand_met, met, grid)), 3),
                      "waste_pct": round(float(np.interp(target_demand_met, met, waste)), 1),

@@ -30,16 +30,22 @@ def validate_schema(train: pd.DataFrame) -> dict:
     binary stock status, `stock_hour6_22_cnt` derivable from it, and `sale_amount` equal to one
     of the two hourly aggregations. Raises on any violation."""
     lo, hi = config.ACTIVE_HOURS
+    # each row's hours_sale/hours_stock_status is a 24-long list; stacking the whole column turns
+    # it into one (n_rows, 24) array so the hour axis can be sliced and summed directly below
     hs = np.array(train["hours_sale"].tolist(), dtype=float)
     hss = np.array(train["hours_stock_status"].tolist(), dtype=float)
 
     assert hs.shape[1] == 24 and hss.shape[1] == 24, "expected 24-length hourly vectors"
     assert set(np.unique(hss)).issubset({0, 1}), "stock status must be binary"
 
+    # recompute stock_hour6_22_cnt ourselves from the raw hourly flags, and check it matches the
+    # column the dataset shipped - the count of active-window (06:00-22:00) hours flagged "stocked"
     derived_cnt = (hss[:, lo:hi] == 1).sum(axis=1)
     assert np.array_equal(derived_cnt, train["stock_hour6_22_cnt"].values), \
         "stock_hour6_22_cnt != #(hours_stock_status[6:22]==1)"
 
+    # sale_amount could be either convention depending on the data variant: the sum of all 24
+    # hours, or just the sum over the active window. Only one needs to hold, but at least one must.
     eq_full = np.allclose(train["sale_amount"].values, hs.sum(axis=1), atol=1e-6)
     eq_win = np.allclose(train["sale_amount"].values, hs[:, lo:hi].sum(axis=1), atol=1e-6)
     assert eq_full or eq_win, "sale_amount matches neither hourly aggregation"

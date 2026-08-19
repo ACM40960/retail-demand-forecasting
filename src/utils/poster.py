@@ -37,9 +37,9 @@ PALETTE = {"raw": "#2A78D6", "recovered": "#EB6834",
 POSTER_RC = {
     "figure.dpi": 300, "savefig.dpi": 300, "savefig.bbox": "tight",
     "font.family": "sans-serif",
-    # Lato isn't installed on this machine (PLAN.md §6.5); Segoe UI is the closest available
-    # match in spirit - modern humanist sans, not DejaVu's dated, uneven-weight look. Falls
-    # forward to Lato automatically if it's ever installed, since it's still first in the list.
+    # Lato isn't installed on this machine, so Segoe UI is the closest available fallback in
+    # spirit - modern humanist sans, not DejaVu's dated, uneven-weight look. Falls forward to
+    # Lato automatically if it's ever installed, since it's still first in the list.
     "font.sans-serif": ["Lato", "Segoe UI", "Calibri", "Arial", "DejaVu Sans"],
     "font.size": 23, "axes.titlesize": 26, "axes.labelsize": 23,
     "xtick.labelsize": 21, "ytick.labelsize": 21, "legend.fontsize": 21,
@@ -53,8 +53,8 @@ POSTER_RC = {
     "legend.frameon": False, "figure.facecolor": "white", "axes.facecolor": "white",
 }
 
-POSTER_DIR = config.ROOT / "poster" / "figures"   # appendix figures - not referenced by main.tex
-IMAGES_DIR = config.ROOT / "poster" / "images"     # the three figures main.tex actually includes
+POSTER_DIR = config.ROOT / "poster" / "figures"   # appendix figures - not referenced by poster.html
+IMAGES_DIR = config.ROOT / "poster" / "images"     # the three figures poster.html actually includes
 
 
 def _finish(fig, name: str, save: bool, dest=None):
@@ -96,8 +96,9 @@ def fig1_problem(recovered: pd.DataFrame = None, save: bool = True):
     recovered = recovery.load_daily("recovered") if recovered is None else recovered
     train = recovered[recovered["period"] == "training"]
 
-    rate = train.groupby(["store_id", "product_id"])["is_censored"].mean()
-    store, product = (rate - 0.5).abs().idxmin()
+    rate = train.groupby(["store_id", "product_id"])["is_censored"].mean()   # each series' own
+                                                                               # censored-day share
+    store, product = (rate - 0.5).abs().idxmin()   # whichever series' rate sits closest to 50%
     ex = train[(train.store_id == store) & (train.product_id == product)].sort_values("dt").tail(35)
 
     with mpl.rc_context(POSTER_RC):
@@ -183,8 +184,11 @@ def fig3_per_band(daily: pd.DataFrame = None, save: bool = True):
 
     change = {}
     for fam in ("tft", "xgb"):
+        # score both targets, per band, for this one family
         sc = {t: scores_by_bucket(pd.read_parquet(config.forecast_parquet("validation", t, fam)),
                                   band) for t in ("raw", "recovered")}
+        # % change in WAPE going from raw to recovered, band by band (negative = recovered is better);
+        # drop the pooled "ALL" row, since the whole point of this figure is reading it per band
         change[fam] = ((sc["recovered"]["WAPE"] / sc["raw"]["WAPE"] - 1) * 100).drop("ALL")
 
     bands = list(change["tft"].index)
@@ -221,9 +225,12 @@ def fig3_per_band(daily: pd.DataFrame = None, save: bool = True):
 def fig_calibration(save: bool = True):
     """Coverage before vs. after conformal correction, both bands, validation and test. Reads
     `conformal_results_tft_recovered_wide{80,95}.json` - the tft/recovered arm carries both
-    periods since the save-overwrite bug was fixed (see PLAN.md §11, 2026-08-14)."""
+    periods since a save-overwrite bug was fixed (a later test-week run used to erase an
+    earlier validation record for the same arm; `conformal.run` now merges instead)."""
     import json
     rows = []
+    # one row per (band, window) combination - 2 bands x 2 windows = 4 rows, each holding the
+    # coverage before and after conformal correction, read straight out of the saved JSON reports
     for nominal, tag in ((0.80, "wide80"), (0.95, "wide95")):
         d = json.loads(config.conformal_results(tag, family="tft", target="recovered").read_text())
         for period in ("validation", "test"):
@@ -265,7 +272,7 @@ def fig_waste_comparison(save: bool = True):
     windows (validation, test) and both model families, so a bar-height difference here is a
     waste difference at IDENTICAL availability, never a side effect of one arm ordering more.
 
-    This is the image `poster/main.tex` section 4 embeds. Supersedes the old
+    This is the image `poster/poster.html` Card 4 embeds. Supersedes the old
     `fig4_equal_service`, which read a `waste_at_equal_service.csv` no longer written since
     notebook 04 was restructured around `conclusion_*.csv` outputs.
     """
@@ -312,7 +319,7 @@ def fig_waste_comparison(save: bool = True):
 def fig5_cost_sweep(save: bool = True):
     """Ordering cost against the status-quo rule across the whole cost sweep. Reads
     `cost_sweep.csv`. ONE axis - cost saving only; the stockout column lives in its own figure
-    rather than being hung off a second y-scale. This is the image `poster/main.tex` section 5
+    rather than being hung off a second y-scale. This is the image `poster/poster.html` Card 5
     embeds."""
     sweep = pd.read_csv(config.COST_SWEEP_CSV).sort_values("c_u")
 
@@ -355,14 +362,17 @@ _QUANTILE_COLORS = ["#898781", "#2a78d6", "#eb6834", "#1baf7a"]
 def fig_quantile_anchors(save: bool = True):
     """Three operating points against the status quo, on the three metrics that matter at once.
     Reads `conclusion_quantile_map.csv` (notebook 04's E5) - validation, full-shelf days,
-    recovered TFT. This is the image `poster/main.tex` section 7 embeds.
+    recovered TFT. This is the image `poster/poster.html` Card 6 embeds.
 
     The naive/"today" baseline isn't re-run from the pipeline: every row already reports its own
     waste relative to it (`waste vs today %`), so it is recovered algebraically from the one row
     where that column is exactly 0 - q0.513, the waste-neutral point by construction.
     """
     df = pd.read_csv(config.REPORTS_DIR / "conclusion_quantile_map.csv").set_index("order at")
-    neutral = df.loc["q0.513"]
+    neutral = df.loc["q0.513"]   # the row where "waste vs today %" is exactly 0, by construction
+    # rearrange "this row wastes X% less than today" back into "today wastes this much": if
+    # neutral's waste is v and it's reported as 0% different from today, today's waste is also v -
+    # this just makes that algebra explicit for the general case where the saved % isn't exactly 0
     naive = {"ran out %": 41.7, "demand met %": 79.9,
              "waste % of demand": neutral["waste % of demand"] / (1 - neutral["waste vs today %"] / 100)}
 
@@ -386,7 +396,7 @@ def fig_quantile_anchors(save: bool = True):
 
 
 def build_poster_images(save: bool = True):
-    """The three images `poster/main.tex` actually includes, regenerated at print scale
+    """The three images `poster/poster.html` actually includes, regenerated at print scale
     (300 dpi, 21-26pt type - `POSTER_RC`) from the same committed report CSVs the poster's
     prose already quotes numbers from, so a figure can never disagree with its caption."""
     print("building poster/images from committed report CSVs:")
@@ -399,10 +409,10 @@ def build_poster_images(save: bool = True):
 def fig6_stockout_timing(daily: pd.DataFrame = None, save: bool = True):
     """When a stockout day first goes empty, and whether it recovers before close.
 
-    Appendix only - not part of `build_all()` / the poster (2026-08-14: cut for space; the
-    poster's six figures are the ones the Results narrative depends on). Kept because it's a real,
-    reproducible answer to PLAN.md's stockout-timing EDA item, callable standalone for a report:
-    87% of outages run through closing, which is why Stage 2 (`recovery._stage2`) carries the
+    Appendix only - not part of `build_all()` / the poster (cut for space; the poster's six
+    figures are the ones the Results narrative depends on). Kept because it's a real,
+    reproducible answer to "when does a stockout day actually start?", callable standalone for
+    a report: 87% of outages run through closing, which is why Stage 2 (`recovery._stage2`) carries the
     predicted rate forward rather than modelling a mid-day return to stock. Training-period days
     only, matching every other recovery figure.
     """
@@ -415,9 +425,15 @@ def fig6_stockout_timing(daily: pd.DataFrame = None, save: bool = True):
     lo, hi = _config.ACTIVE_HOURS
     active = tr[(tr.hour >= lo) & (tr.hour < hi)]
 
+    # one list of stocked-out hours per (series, day) that had a stockout at all
     out_hours = active[active.hour_stockout == 1].groupby(
         ["store_id", "product_id", "dt"])["hour"].apply(list)
-    first_hour = out_hours.apply(min)
+    first_hour = out_hours.apply(min)   # the hour each stockout day FIRST went empty
+    # did an in-stock hour (one NOT in the stocked-out list) ever show up again after the first
+    # stockout hour and before closing? If so, the shelf was restocked before the day ended.
+    # NOTE: computed but not currently read below - the chart only plots first_hour. The "87%
+    # of outages run through closing" figure in this function's own docstring would come from
+    # `recovers`, so either the chart is missing that annotation or the number needs rechecking.
     recovers = out_hours.apply(lambda hrs: any(h > min(hrs) and h not in hrs
                                                for h in range(min(hrs), hi)))
 
@@ -441,7 +457,7 @@ def fig6_stockout_timing(daily: pd.DataFrame = None, save: bool = True):
 
 
 def build_all(save: bool = True):
-    """The appendix/exploratory figures - not what `poster/main.tex` embeds (that's
+    """The appendix/exploratory figures - not what `poster/poster.html` embeds (that's
     `build_poster_images()`). `fig6_stockout_timing` isn't included even here - it's kept
     callable standalone for a report, not part of any batch build."""
     print("building appendix figures from committed artifacts:")

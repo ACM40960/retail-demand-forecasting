@@ -17,11 +17,13 @@ def add_period(df: pd.DataFrame) -> pd.DataFrame:
     date), "test" for `split=="eval"` rows. Raises if a train-file date falls outside the frozen
     90-day window. `df` needs `split` and `dt`, e.g. from `data_io.load(...)`."""
     df = df.copy()
-    df["period"] = "test"
+    df["period"] = "test"   # default for every row; overwritten below for the train-file ones
 
     is_train_file = df["split"] == "train"
     dt = pd.to_datetime(df.loc[is_train_file, "dt"])
-    period = pd.Series("unknown", index=dt.index, dtype="object")
+    period = pd.Series("unknown", index=dt.index, dtype="object")   # "unknown" is a sentinel: if any
+    # row is still "unknown" after the loop below, its date fell outside all three windows, which
+    # the check right after the loop turns into an error rather than a silently mislabelled row
     for name, start, end in [("training", config.TRAIN_START, config.TRAIN_END),
                              ("validation", config.VAL_START, config.VAL_END),
                              ("calibration", config.CAL_START, config.CAL_END)]:
@@ -31,7 +33,7 @@ def add_period(df: pd.DataFrame) -> pd.DataFrame:
         raise ValueError("dates outside the frozen 90-day window: "
                          f"{sorted(dt[period == 'unknown'].unique())[:5]}")
 
-    df.loc[is_train_file, "period"] = period
+    df.loc[is_train_file, "period"] = period   # write the labelled periods back onto the full frame
     return df
 
 

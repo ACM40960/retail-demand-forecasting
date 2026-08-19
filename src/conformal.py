@@ -121,6 +121,9 @@ def load_forecasts(periods=("calibration", "validation", "test"), master: pd.Dat
 def nonconformity(df: pd.DataFrame, lower=LOWER, upper=UPPER) -> np.ndarray:
     """CQR score E_i = max(q_lo - y, y - q_hi): how far y falls outside the band, negative when
     comfortably inside (Romano 2019 eq. 6)."""
+    # if y sits below q_lo, the first term is positive and the row scores its distance below the
+    # band; if y sits above q_hi, the second term is positive instead. A row comfortably inside
+    # the band makes both terms negative, and max() picks whichever is less negative (closest to 0).
     return np.maximum(df[lower].values - df["y"].values, df["y"].values - df[upper].values)
 
 
@@ -128,6 +131,9 @@ def conformal_offset(scores: np.ndarray, alpha: float) -> float:
     """The finite-sample split-conformal quantile - ceil((n+1)(1-alpha))/n of the scores - i.e.
     the smallest widening that guarantees >= 1-alpha coverage on exchangeable data."""
     n = len(scores)
+    # not simply the alpha-quantile of the scores: the (n+1) and ceil() are the finite-sample
+    # correction from the CQR paper, which is what makes the coverage guarantee hold exactly rather
+    # than only in the limit of infinite calibration data
     return float(np.quantile(scores, min(1.0, np.ceil((n + 1) * (1 - alpha)) / n), method="higher"))
 
 
@@ -231,7 +237,8 @@ def run(nominal: float = NOMINAL, lower: str = LOWER, upper: str = UPPER,
 
     calib = pd.concat([data[p] for p in calibration_periods], ignore_index=True)
     calib = calib[calib["observed"]].copy()
-    scores = nonconformity(calib, lower, upper)
+    scores = nonconformity(calib, lower, upper)   # one nonconformity score per calibration row,
+                                                   # fitted once and reused for every eval window below
 
     results = {"method": "split CQR", "nominal": nominal, "band": [lower, upper],
                "family": family, "forecast_tag": target,
@@ -242,6 +249,9 @@ def run(nominal: float = NOMINAL, lower: str = LOWER, upper: str = UPPER,
         # The offset is fitted per eval window because the ONLY thing that varies is whether that
         # window is forward of the calibration set, which decides the inflation.
         inflation = FORWARD_DRIFT_INFLATION if _is_forward(name, calibration_periods) else 0.0
+        # asking for a bit more than the nominal coverage (nominal + inflation) on forward windows
+        # is what "calibrate at 83% to land on 80%" means mechanically: alpha shrinks, so
+        # conformal_offset reads a higher, wider-covering percentile off the same calibration scores
         Q = conformal_offset(scores, round(1 - nominal - inflation, 4))
 
         corr = data[name].copy()                       # ALL product-days

@@ -133,23 +133,28 @@ def tune(daily: pd.DataFrame, tag: str = "recovered", grid: dict = None,
     here run several times longer than the fastest.
     """
     grid = GRID if grid is None else grid
-    target = TARGETS[tag]
+    target = TARGETS[tag]   # "recovered_demand" or "sale_amount", whichever this tag points to
     train_df = daily[daily["period"] == "training"]
     tr = _train_rows(train_df, target)
     ev = add_history_features(train_df, daily[daily["period"] == "validation"], source=target)
 
+    # the last EARLY_STOP_DAYS of training become the held-back slice early stopping watches;
+    # everything before the cutoff is what each config actually fits on
     cutoff = tr["dt"].max() - pd.Timedelta(days=EARLY_STOP_DAYS)
     fit_rows, stop_rows = tr[tr["dt"] <= cutoff], tr[tr["dt"] > cutoff]
+    # every combination of grid values, e.g. {learning_rate: 0.02, max_depth: 5}, {0.02, 6}, ...
     combos = [dict(zip(grid, v)) for v in itertools.product(*grid.values())]
 
     rows = []
     for i, cfg in enumerate(combos, 1):
         print(f"[{tag}] config {i}/{len(combos)}: {cfg}", flush=True)
 
+        # MAX_ROUNDS is just a ceiling here; early stopping decides the real round count. Fit on
+        # fit_rows, watch loss on stop_rows, and stop once EARLY_STOP_ROUNDS pass with no improvement.
         model = _model(n_estimators=MAX_ROUNDS, early_stopping_rounds=EARLY_STOP_ROUNDS, **cfg)
         model.fit(fit_rows[BASELINE_FEATS], fit_rows[target], verbose=False,
                   eval_set=[(stop_rows[BASELINE_FEATS], stop_rows[target])])
-        best_round = int(model.best_iteration) + 1
+        best_round = int(model.best_iteration) + 1   # best_iteration is 0-indexed, best_round isn't
         if best_round >= MAX_ROUNDS:
             print(f"    !! never stopped - hit the {MAX_ROUNDS}-round ceiling, so this score is a "
                   f"floor rather than this config's best, and is NOT comparable to the rows that "
@@ -191,6 +196,7 @@ def learning_curve(daily: pd.DataFrame, tag: str = "recovered", n_estimators: in
     target = TARGETS[tag]
     train_df = daily[daily["period"] == "training"]
     tr = _train_rows(train_df, target)
+    # dropna: a row with no target value can't be scored, so it would just add noise to the eval loss
     ev = add_history_features(train_df, daily[daily["period"] == "validation"],
                               source=target).dropna(subset=[target])
 
@@ -198,14 +204,17 @@ def learning_curve(daily: pd.DataFrame, tag: str = "recovered", n_estimators: in
     # separately let this function default `subsample` to XGBoost's 1.0 while the grid used 0.8 - a curve
     # for a config no other function would ever fit, which is the kind of mismatch nothing would surface.
     model = _model(n_estimators=n_estimators, **params)
+    # eval_set order matters: XGBoost names them "validation_0", "validation_1", ... by POSITION, not by
+    # what they actually are - so passing (train, val) in that order is what makes "validation_0" below
+    # mean the training rows and "validation_1" mean the actual validation rows.
     model.fit(tr[BASELINE_FEATS], tr[target], verbose=False,
               eval_set=[(tr[BASELINE_FEATS], tr[target]),
                         (ev[BASELINE_FEATS].fillna(0), ev[target])])
 
     hist = model.evals_result()
     curve = pd.DataFrame({"round": np.arange(1, n_estimators + 1),
-                          "train": hist["validation_0"]["quantile"],
-                          "validation": hist["validation_1"]["quantile"]})
+                          "train": hist["validation_0"]["quantile"],       # eval_set[0] = train rows
+                          "validation": hist["validation_1"]["quantile"]}) # eval_set[1] = validation rows
     curve["gap"] = curve["validation"] - curve["train"]
 
     # `label`, not `tag`, names the file: the curve belongs to a CONFIG, not just a target, and two
@@ -214,7 +223,7 @@ def learning_curve(daily: pd.DataFrame, tag: str = "recovered", n_estimators: in
     path = config.learning_curve_csv("xgb", label or tag)
     path.parent.mkdir(parents=True, exist_ok=True)
     curve.to_csv(path, index=False)
-    best = curve.loc[curve["validation"].idxmin()]
+    best = curve.loc[curve["validation"].idxmin()]   # the round where validation loss was lowest
     print(f"[xgb {tag}] validation loss bottoms at round {int(best['round'])} "
           f"({best['validation']:.5f}), gap to train {best['gap']:.5f} -> {path.name}", flush=True)
     return curve
@@ -225,8 +234,7 @@ def best_params(tuning: pd.DataFrame) -> dict:
 
     Reads the hyperparameters off the TABLE rather than off `GRID`, so a ranking produced by a different
     grid - a regularisation sweep, or any one-off - still resolves. Keying off the module-level grid would
-    raise on a
-    table that is perfectly valid.
+    raise on a table that is perfectly valid.
 
     `best_round` becomes `n_estimators`: the whole point of early stopping is that the round count is part
     of the answer, so a caller that dropped it would train a differently-sized model than the one scored.
@@ -234,7 +242,9 @@ def best_params(tuning: pd.DataFrame) -> dict:
     if "best_round" not in tuning.columns:
         raise KeyError("tuning table has no `best_round` - it predates early stopping, so the round "
                        "count that produced its scores is unrecoverable. Re-run `tune`.")
-    top = tuning.iloc[0]
+    top = tuning.iloc[0]   # the table is already sorted by pinball(avg), so the first row is the winner
+    # cast back to int or float depending on the param: everything came out of a saved CSV as a
+    # generic column type, and XGBoost is picky about max_depth being an int, not a numpy float
     cfg = {c: (int(top[c]) if c in _INT_PARAMS else float(top[c]))
            for c in tuning.columns if c not in _NOT_A_PARAM}
     return {**FIXED, **cfg, "n_estimators": int(top["best_round"])}
@@ -264,6 +274,8 @@ def run(daily: pd.DataFrame, tag: str = "recovered",
     """
     train_df = daily[daily["period"] == "training"]
     tr = _train_rows(train_df, TARGETS[tag])
+    # no early stopping here - fit_kwargs already carries the winning config, including the
+    # n_estimators best_params picked, so this trains for exactly that many rounds and no more
     model = _model(**fit_kwargs)
 
     # Both sides scored against the TRAINING signal (`TARGETS[tag]`) on all rows, which is NOT what
@@ -271,27 +283,32 @@ def run(daily: pd.DataFrame, tag: str = "recovered",
     # here is therefore not comparable to `pinball(avg)`; read the shape.
     eval_set = None
     if curve:
+        # same (train, validation) eval_set order as learning_curve - see the comment there on why
+        # the order matters for how "validation_0"/"validation_1" get read below
         ev_curve = add_history_features(train_df, daily[daily["period"] == "validation"],
                                         source=TARGETS[tag]).dropna(subset=[TARGETS[tag]])
         eval_set = [(tr[BASELINE_FEATS], tr[TARGETS[tag]]),
                     (ev_curve[BASELINE_FEATS].fillna(0), ev_curve[TARGETS[tag]])]
+    # eval_set=None when curve=False, so this is just a normal fit with nothing extra recorded
     model.fit(tr[BASELINE_FEATS], tr[TARGETS[tag]], eval_set=eval_set, verbose=False)
 
     if curve:
-        hist = model.evals_result()
+        hist = model.evals_result()   # per-round loss XGBoost tracked during the fit above, for free
         rounds = len(hist["validation_0"]["quantile"])
         cur = pd.DataFrame({"round": np.arange(1, rounds + 1),
-                            "train": hist["validation_0"]["quantile"],
-                            "validation": hist["validation_1"]["quantile"]})
+                            "train": hist["validation_0"]["quantile"],       # eval_set[0] = train rows
+                            "validation": hist["validation_1"]["quantile"]}) # eval_set[1] = validation rows
         cur["gap"] = cur["validation"] - cur["train"]
         if save:
             path = config.learning_curve_csv("xgb", tag)
             path.parent.mkdir(parents=True, exist_ok=True)
             cur.to_csv(path, index=False)
-        turn = int(cur.loc[cur["validation"].idxmin(), "round"])
+        turn = int(cur.loc[cur["validation"].idxmin(), "round"])   # round validation loss was lowest at
         print(f"[xgb {tag}] curve: {rounds} rounds, validation bottoms at {turn} "
               f"({cur['validation'].min():.5f}), gap at the end {cur['gap'].iloc[-1]:.5f}", flush=True)
 
+    # one forecast per requested period, all from the SAME fitted model above - only the history
+    # window changes, so this is prediction, not retraining
     out = {}
     for period in periods:
         ev = add_history_features(train_df, daily[daily["period"] == period], source=TARGETS[tag])

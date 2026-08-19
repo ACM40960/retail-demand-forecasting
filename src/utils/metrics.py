@@ -12,13 +12,14 @@ import pandas as pd
 def per_date_scores(df: pd.DataFrame, actual: str = "sale_amount", pred: str = "pred") -> dict:
     """WAPE/WPE/MAE per date on non-stockout rows, averaged across dates."""
     W, P, M = [], [], []
-    for _, s in df.query("stock_hour6_22_cnt == 0").groupby("dt"):
+    for _, s in df.query("stock_hour6_22_cnt == 0").groupby("dt"):   # one date's worth of rows at a time
         if s[actual].sum() == 0:   # skip degenerate dates
             continue
         ae = (s[actual] - s[pred]).abs()
-        W.append(ae.sum() / s[actual].sum())
-        P.append((s[pred] - s[actual]).sum() / s[actual].sum())
-        M.append(ae.mean())
+        W.append(ae.sum() / s[actual].sum())                       # that date's WAPE
+        P.append((s[pred] - s[actual]).sum() / s[actual].sum())    # that date's WPE (signed, keeps direction)
+        M.append(ae.mean())                                        # that date's MAE
+    # W/P/M each now hold one number per date; the return below averages each list across dates
     if not W:
         raise ValueError("no scorable dates: every non-stockout date had zero total sales")
     return dict(WAPE=round(np.mean(W), 4), WPE=round(np.mean(P), 4), MAE=round(np.mean(M), 4))
@@ -59,10 +60,13 @@ def pinball_by_quantile(df: pd.DataFrame, actual: str = "sale_amount") -> dict:
     """
     nz = df["stock_hour6_22_cnt"] == 0
     y = df.loc[nz, actual].values
+    # find every column that looks like a quantile name and recover its tau from the digits: "q10"
+    # -> 10/100 = 0.10, "q975" -> 975/1000 = 0.975. The column's own length picks the divisor, since
+    # two-digit names are whole percent (q10, q90) and three-digit names are tenths of a percent (q975).
     taus = {c: float(c[1:]) / (1000 if len(c) > 3 else 100) for c in df.columns
             if re.fullmatch(r"q\d{2,3}", str(c))}
     return {f"pinball@{tau:g}": round(pinball(y, df.loc[nz, c].values, tau), 5)
-            for c, tau in sorted(taus.items(), key=lambda kv: kv[1])}
+            for c, tau in sorted(taus.items(), key=lambda kv: kv[1])}   # sorted low-to-high tau
 
 
 def attach_bucket(df: pd.DataFrame, bucket: pd.Series) -> pd.Series:
@@ -114,6 +118,8 @@ def lost_sales_vs_waste(frames: dict, bucket: pd.Series, quantile: str = "q50",
     def one(df: pd.DataFrame, label: str) -> pd.DataFrame:
         d = df[df["stock_hour6_22_cnt"] == 0].copy()
         d["band"] = attach_bucket(d, bucket)
+        # only one of these two is ever positive on a given row: the order either fell short of
+        # demand (missed > 0, binned clipped to 0) or overshot it (binned > 0, missed clipped to 0)
         d["missed"] = (d[actual] - d[quantile]).clip(lower=0)
         d["binned"] = (d[quantile] - d[actual]).clip(lower=0)
         g = d.groupby("band", observed=True).agg(demand=(actual, "sum"),
@@ -122,8 +128,10 @@ def lost_sales_vs_waste(frames: dict, bucket: pd.Series, quantile: str = "q50",
         return pd.DataFrame({f"lost_sales_%_{label}": (g.missed / g.demand * 100).round(1),
                              f"waste_%_{label}": (g.binned / g.demand * 100).round(1)})
 
+    # one four-column table per label (raw, recovered), pasted side by side by band
     trade = pd.concat([one(df, label) for label, df in frames.items()], axis=1)
-    raw, rec = list(frames)
+    raw, rec = list(frames)   # dict preserves insertion order, so this is ("raw", "recovered")
+    # how much of the lost-sales % recovery actually clawed back, and what it cost in extra waste
     trade["lost_sales_recovered_pts"] = (trade[f"lost_sales_%_{raw}"]
                                          - trade[f"lost_sales_%_{rec}"]).round(1)
     trade["waste_added_pts"] = (trade[f"waste_%_{rec}"] - trade[f"waste_%_{raw}"]).round(1)

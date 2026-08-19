@@ -33,12 +33,16 @@ def add_history_features(sub_train: pd.DataFrame, sub_eval: pd.DataFrame,
     `source` is the history the features are built from - raw sales for the status-quo baseline,
     `recovered_demand` for its recovered twin, so each model gets the history it would really have.
     """
+    # stack train and eval together first, so lag7/lag14 on an eval row can reach back into the
+    # training rows that precede it, then keep only the eval rows once the lags are built
     both = add_lagged_features(pd.concat([sub_train, sub_eval], ignore_index=True),
                                source=source, lags=(7, 14),
                                mean_windows=(), std_windows=(), fill=False)
     ev = (both[both["dt"].isin(sub_eval["dt"].unique())]
           .drop(columns=["roll7_mean", "roll7_std"], errors="ignore"))   # avoid _x/_y on merge
 
+    # rolling mean/std computed separately, frozen at the LAST 7 training days rather than rolled
+    # forward through the eval window - see the docstring for why that's a deliberate handicap
     last7 = (sub_train.sort_values("dt").groupby(["store_id", "product_id"])[source]
              .agg(roll7_mean=lambda s: s.tail(7).mean(), roll7_std=lambda s: s.tail(7).std())
              .reset_index())
@@ -64,12 +68,14 @@ def xgboost_quantile(sub_train: pd.DataFrame, ev_feat: pd.DataFrame,
     Xtr, ytr = trf[BASELINE_FEATS], trf[target]
     Xev = ev_feat[BASELINE_FEATS].fillna(0)
     xv = ev_feat.copy()
+    # a separate model per quantile (unlike gbm.py's TFT-competitor, which fits all six jointly) -
+    # this baseline just needs q10/q50/q90, so three small fits are simpler than one shared model
     for tau, col in [(0.1, "q10"), (0.5, "q50"), (0.9, "q90")]:
         m = XGBRegressor(objective="reg:quantileerror", quantile_alpha=tau,
                          n_estimators=300, max_depth=6, learning_rate=0.05,
                          subsample=0.8, colsample_bytree=0.8, random_state=random_state)
         m.fit(Xtr, ytr)
-        xv[col] = np.clip(m.predict(Xev), 0, None)
+        xv[col] = np.clip(m.predict(Xev), 0, None)   # demand cannot be negative
     return xv
 
 
@@ -81,21 +87,24 @@ def sarima_sampled(sub_train: pd.DataFrame, sub_eval: pd.DataFrame,
     import warnings
     warnings.filterwarnings("ignore")
 
-    series = list(sub_train.groupby(["store_id", "product_id"]))
+    series = list(sub_train.groupby(["store_id", "product_id"]))   # [((store, product), rows), ...]
     rng = np.random.default_rng(random_state)
     pick = [series[i] for i in rng.choice(len(series), min(n_series, len(series)), replace=False)]
     rows, n_failed = [], 0
-    for (s, p), tr in pick:
+    for (s, p), tr in pick:   # one SARIMA model fitted per series - this is why it's slow and sampled
         y = tr.sort_values("dt")["sale_amount"].astype(float).values
         ev_sp = sub_eval[(sub_eval.store_id == s) & (sub_eval.product_id == p)].sort_values("dt")
-        if len(ev_sp) == 0:
+        if len(ev_sp) == 0:   # this series has no eval rows to score against; skip it
             continue
         try:
+            # order=(1,0,1): one autoregressive term, no differencing, one moving-average term.
+            # seasonal_order=(1,0,0,7): one seasonal AR term with a 7-day period, i.e. "today looks
+            # like the same weekday last week" folded into the model rather than hand-engineered.
             f = SARIMAX(y, order=(1, 0, 1), seasonal_order=(1, 0, 0, 7),
                         enforce_stationarity=False, enforce_invertibility=False
                         ).fit(disp=False).forecast(len(ev_sp))
         except Exception:   # SARIMA genuinely fails to converge on sparse series; count those
-            f = np.repeat(y[-7:].mean(), len(ev_sp))
+            f = np.repeat(y[-7:].mean(), len(ev_sp))   # fall back to a flat last-7-day average
             n_failed += 1
         rows.append(ev_sp.assign(pred=np.clip(f, 0, None)))
     return per_date_scores(pd.concat(rows)) | {"n_series": len(pick), "n_failed": n_failed}
