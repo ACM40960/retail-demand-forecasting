@@ -32,15 +32,12 @@ def add_lagged_features(df: pd.DataFrame, source: str,
     back-fills start-of-series gaps; `fill=False` leaves them for the caller to drop.
     """
     df = df.sort_values(GROUP + ["dt"]).copy()
-    g = df.groupby(GROUP)[source]   # one group per series (store, product); everything below
-                                    # operates within a series, never mixing one product's history
-                                    # into another's
+    g = df.groupby(GROUP)[source]   # one group per series, so no product's history leaks into another
 
     def rolling(w, how):
-        # shift(1) first, so the window ends the day BEFORE the current row - the same reason
-        # every lag below is a shift, not a lookup: day t must never see its own value.
-        # min_periods below `w` (_MIN_PERIODS) is the start-of-series tolerance: a series only 3
-        # days into training still gets a 7-day rolling mean, just from fewer than 7 days
+        # shift(1) first, so the window ends the day before the current row: day t never sees its
+        # own value. `_MIN_PERIODS` is the start-of-series tolerance, so a series 3 days into
+        # training still gets a 7-day mean, just from fewer than 7 days.
         mp = _MIN_PERIODS.get(w, 1)
         return g.transform(lambda s: how(s.shift(1).rolling(w, min_periods=mp)))
 
@@ -49,8 +46,7 @@ def add_lagged_features(df: pd.DataFrame, source: str,
     std_cols = [f"roll{w}_std" for w in std_windows]
 
     for k, col in zip(lags, lag_cols):
-        df[col] = g.shift(k)   # shift(k) inside a groupby reads k rows earlier IN THE SAME SERIES,
-                               # so lag7 is literally "what this exact product sold 7 days ago"
+        df[col] = g.shift(k)   # inside the groupby, so k rows earlier in the same series
     for w, col in zip(mean_windows, mean_cols):
         df[col] = rolling(w, lambda r: r.mean())
     for w, col in zip(std_windows, std_cols):
@@ -94,16 +90,13 @@ def explode_hourly(hourly_df: pd.DataFrame, daily_context: pd.DataFrame) -> pd.D
     """Turn the hourly companion parquet (length-24 lists per day) into one row per
     (store_id, product_id, dt, hour), joined with the daily context features."""
     h = hourly_df[["store_id", "product_id", "dt", "hours_sale", "hours_stock_status"]]
-    # each cell of hours_sale/hours_stock_status is itself a 24-long list (one value per hour);
-    # np.stack turns a column of lists into a proper 2-D array, one row per day, 24 columns
     sale = np.stack(h["hours_sale"].to_numpy())              # (n_days, 24)
     stockout = np.stack(h["hours_stock_status"].to_numpy())  # (n_days, 24)
     n_days, n_hours = sale.shape
     assert n_hours == 24, f"expected 24-length hourly vectors, got {n_hours}"
 
-    # flatten (n_days, 24) down to one row per (day, hour): repeat each day's id/date 24 times,
-    # tile the hour numbers 0-23 once per day, then ravel the two 2-D arrays in the same row-major
-    # order so hour_sale[i] and hour_stockout[i] line up with the (day, hour) at row i
+    # (n_days, 24) down to one row per (day, hour). repeat, tile and ravel share row-major order,
+    # so hour_sale[i] and hour_stockout[i] line up with the (day, hour) at row i.
     long = pd.DataFrame({
         "store_id": np.repeat(h["store_id"].to_numpy(), n_hours),
         "product_id": np.repeat(h["product_id"].to_numpy(), n_hours),
@@ -113,9 +106,8 @@ def explode_hourly(hourly_df: pd.DataFrame, daily_context: pd.DataFrame) -> pd.D
         "hour_stockout": stockout.ravel(),
     })
 
-    # dict.fromkeys dedupes while keeping order (store_id/product_id/dt appear both in the base
-    # list and, redundantly, wherever FEATURES also lists them) - then keep only the columns that
-    # actually exist on daily_context, since not every caller's frame carries every FEATURES column
+    # dict.fromkeys dedupes in order, since FEATURES repeats some of the key columns; then keep only
+    # the columns this caller's frame actually carries.
     ctx = ["store_id", "product_id", "dt", "split", "period"] + FEATURES
     ctx = [c for c in dict.fromkeys(ctx) if c in daily_context.columns]
     return long.merge(daily_context[ctx], on=["store_id", "product_id", "dt"], how="left")

@@ -1,8 +1,9 @@
 """Quantile demand forecasting - the Forecast stage.
 
-A Temporal Fusion Transformer trained on `recovered_demand`, emitting q10/q50/q90 over a 7-day
-horizon rolled across a target period. `tag="raw"` trains the identical model on raw `sale_amount`,
-so "was filling in the hidden demand worth it?" is two calls to one code path, not a second model.
+A Temporal Fusion Transformer trained on `recovered_demand`, emitting six quantiles
+(q025/q10/q50/q80/q90/q975) over a 7-day horizon rolled across a target period. `tag="raw"` trains
+the identical model on raw `sale_amount`, so "was filling in the hidden demand worth it?" is two
+calls to one code path, not a second model.
 
 Scoring uses the dataset's convention: per date, non-stockout rows only, against recorded
 `sale_amount`. On those rows recorded sales ARE demand, so neither version is judged against the
@@ -33,13 +34,10 @@ from .utils.metrics import quantile_scores
 HORIZON = 7
 QUANTILES = [0.025, 0.1, 0.5, 0.8, 0.9, 0.975]
 
-# Column name per quantile, stated explicitly rather than derived as f"q{int(q*100)}". That
-# expression truncates: 0.025 lands on "q2" and 0.975 on "q97" (float, so 97.4999...), which name the
-# 2nd and 97th percentiles rather than the 2.5th and 97.5th - and neither matches the `q025`/`q975`
-# the ordering stage reads. Two-decimal quantiles have no safe integer name, so they get spelled out.
-#
-# 0.8 is here because the ordering stage reads tau* = c_u/(c_u+c_o), and the headline cost ratio of
-# 4:1 puts that at exactly 0.8. Without it the order is interpolated between q50 and q90.
+# Spelled out, not derived as f"q{int(q*100)}": that truncates 0.025 to "q2" and 0.975 to "q97"
+# (float, so 97.4999...), naming the wrong percentiles and missing the `q025`/`q975` the ordering
+# stage reads. 0.8 is in the list because the headline 4:1 cost ratio puts tau* = c_u/(c_u+c_o) at
+# exactly 0.8; without it the order has to be interpolated between q50 and q90.
 QCOL = {0.025: "q025", 0.1: "q10", 0.5: "q50", 0.8: "q80", 0.9: "q90", 0.975: "q975"}
 assert set(QUANTILES) <= set(QCOL), f"no column name for {set(QUANTILES) - set(QCOL)}"
 TARGETS = {"recovered": "recovered_demand", "raw": "sale_amount"}   # the two targets compared
@@ -55,24 +53,19 @@ CARRY = ["sale_amount", "stock_hour6_22_cnt", "recovered_demand", "is_censored"]
 
 
 def build_master_frame() -> pd.DataFrame:
-    """The daily frame every saved forecast gets joined back to for scoring: raw `sale_amount`,
-    the stockout flag and `recovered_demand`, across every split (train/eval, i.e. including the
-    test week) - not just the periods a given forecast run happened to save.
+    """The daily frame every saved forecast is joined back to for scoring: raw `sale_amount`, the
+    stockout flag and `recovered_demand`, across both splits and so including the test week.
 
-    One read, no merge. The recovered parquets are a strict superset of the raw daily ones - same
-    rows, same columns, plus `recovered_demand` - because `recovery._save_recovered` writes the
-    whole frame rather than just the new column. This used to load the raw daily file and merge the
-    recovered column onto it, which was both a redundant read and a REPRODUCIBILITY BUG: the raw
-    daily parquets are rebuildable and therefore gitignored, while the recovered ones are committed,
-    so from a fresh clone the merge failed on a file that was never shipped.
+    One read, no merge. `recovery._save_recovered` writes the whole frame, so the recovered parquets
+    are a strict superset of the raw daily ones. Reading them alone is also what makes this work from
+    a fresh clone: the raw daily parquets are rebuildable and gitignored, the recovered ones shipped.
     """
     return recovery.load_daily("recovered")
 
-# 24 configs. Across three searches only `weight_decay` has moved the score materially, and it moves
-# monotonically (1e-4 > 1e-3 > 1e-2) - so the open question is whether something below 1e-4 is better
-# still. `encoder_days` moves non-monotonically and the rest barely move, so read the ranking as a
-# sweep rather than a precise selection.
-# `hidden_size` is fixed at 32 in `train`: 64 lost in most pairings.
+# 24 configs. `weight_decay` is the only axis that moves the score materially, and it moves
+# monotonically (1e-4 > 1e-3 > 1e-2), so anything below 1e-4 is the open question. `encoder_days`
+# moves non-monotonically and the rest barely move: read the ranking as a sweep, not a precise
+# selection. `hidden_size` is pinned at 32 in `train`, since 64 loses in most pairings.
 GRID = {
     "learning_rate": [0.005, 0.01],
     "dropout": [0.2, 0.3],
@@ -82,15 +75,13 @@ GRID = {
 
 
 class _EpochLine(pl.Callback):
-    """One line per epoch instead of a live progress bar, and the epoch's losses kept in `history`.
+    """One line per epoch instead of a live progress bar, with the epoch's losses kept in `history`.
 
-    The bar redraws on every batch, which in a notebook is an output update per batch - hundreds per
-    epoch, and the single biggest cost of a small model on a GPU. A printed line also survives being
-    scrolled or saved.
+    The bar redraws per batch, which in a notebook is hundreds of output updates an epoch and the
+    biggest cost of a small model on a GPU. A printed line also survives a scroll or a save.
 
-    `history` exists because the Trainer runs with `logger=False`, so Lightning persists no metrics and
-    the printed lines were the only record - lost as soon as a cell was cleared. Collecting them here
-    keeps the learning curve available without turning on a logger and its per-run directories.
+    `history` collects the losses because the Trainer runs with `logger=False` and Lightning persists
+    no metrics, so the learning curve stays available without a logger and its per-run directories.
     """
 
     def __init__(self):
@@ -234,11 +225,10 @@ def train(daily: pd.DataFrame, tag: str = "recovered", learning_rate: float = 0.
                gradient_clip_val=0.1, logger=False, enable_model_summary=False,
                enable_progress_bar=False,   # replaced by _EpochLine - see its docstring
                # patience 8 against a ceiling of 15 means nearly every config runs the full budget,
-               # so configs are compared at EQUAL training rather than at whatever epoch a noisy dip
-               # happened to end them - the previous run stopped configs anywhere from 8 to 15 epochs.
-               # `min_delta` stops a swing smaller than the metric's own jitter counting as progress
-               # and resetting the counter. Overshooting costs only compute: ModelCheckpoint keeps the
-               # best epoch and `train` reloads it.
+               # so configs are compared at equal training and not at whatever epoch a noisy dip
+               # happened to end them. `min_delta` keeps a swing smaller than the metric's own jitter
+               # from counting as progress. Overshooting costs only compute: ModelCheckpoint keeps
+               # the best epoch and `train` reloads it.
                callbacks=[EarlyStopping(monitor="val_loss", patience=patience, min_delta=1e-3),
                           ckpt, epoch_line]).fit(
         model,
@@ -267,13 +257,12 @@ def _forecast_week(model, training, frame: pd.DataFrame, last_day: int) -> pd.Da
     batch = 1024 if _select_accelerator("auto") != "cpu" else 256
     out = model.predict(ds.to_dataloader(train=False, batch_size=batch), mode="quantiles",
                         return_index=True)
-    # preds comes back shaped (n_series, HORIZON, n_quantiles): one 7-day, six-quantile block per
-    # series. index has one row per series (the group_ids and the time_idx the encoder ended at).
+    # preds is (n_series, HORIZON, n_quantiles); index carries the group_ids and the time_idx the
+    # encoder ended at, one row per series
     preds, index = out.output.cpu().numpy(), out.index.reset_index(drop=True)
 
-    # unstack the HORIZON axis into HORIZON separate day-frames, each one row per series, then
-    # concatenate them - "step" counts 0..6 days ahead, so time_idx + step turns the encoder's end
-    # date into the actual calendar day each column of preds is forecasting
+    # one frame per horizon step: `step` counts 0..6 days ahead, so time_idx + step is the calendar
+    # day that slice forecasts
     days = []
     for step in range(preds.shape[1]):
         day = index[["store_id", "product_id"]].copy()
@@ -285,13 +274,12 @@ def _forecast_week(model, training, frame: pd.DataFrame, last_day: int) -> pd.Da
 
 
 def forecast_period(model, training, daily: pd.DataFrame, start: str, end: str) -> pd.DataFrame:
-    """Roll the 7-day horizon across [start, end]; return q10/q50/q90 per series per day."""
+    """Roll the 7-day horizon across [start, end]; return all six quantiles per series per day."""
     frame = _prepare(daily)
     lo, hi = _day(frame, start), _day(frame, end)
 
-    # step through the window HORIZON days at a time: _forecast_week always predicts the 7 days
-    # ENDING at the day it's given, so starting at lo + HORIZON - 1 makes the first block's last
-    # day line up exactly with lo, and each later block picks up where the previous one left off
+    # `_forecast_week` predicts the 7 days ending at the day it is given, so starting at
+    # lo + HORIZON - 1 lands the first block's last day on lo and each later block follows on
     fc = pd.concat([_forecast_week(model, training, frame, d)
                     for d in range(lo + HORIZON - 1, hi + 1, HORIZON)], ignore_index=True)
     fc = fc[(fc.time_idx >= lo) & (fc.time_idx <= hi)]   # trim any overshoot past the window's end
@@ -320,23 +308,21 @@ def tune(daily: pd.DataFrame, tag: str = "recovered", max_epochs: int = 15,
     Resumes automatically: the CSV is rewritten after every config and configs already in it are
     skipped, so a disconnect costs one config.
 
-    Rows left over from a DIFFERENT grid are discarded on load. `config_id` only covers the keys of
-    the grid that wrote it, so editing `GRID` mid-search would otherwise leave old rows in the table,
-    ranked against the new ones - and `best_params` reads `iloc[0]`, so a stale winner would be asked
-    for a column it predates and hand back NaN hyperparameters.
+    Rows from a different grid are discarded on load: `config_id` only covers the keys of the grid
+    that wrote it, so editing `GRID` mid-search would leave old rows ranked against the new ones, and
+    `best_params` reads `iloc[0]`, which would then hand back NaN for a column that row lacks.
     """
     path = config.tft_tuning(tag)
     combos = [dict(zip(GRID, values)) for values in itertools.product(*GRID.values())]
 
-    # resume support: load whatever's already on disk from a previous (possibly interrupted) run
+    # resume support: whatever is already on disk from an interrupted run
     rows = pd.read_csv(path).to_dict("records") if path.exists() else []
     valid = {_config_id(cfg) for cfg in combos}
-    # keep only rows whose config still belongs to the CURRENT grid; anything else is a leftover
-    # from a grid that has since been edited, and gets reported rather than silently kept
+    # keep only rows whose config belongs to the current grid, and report what that drops
     rows, dropped = [r for r in rows if r["config_id"] in valid], \
                     [r for r in rows if r["config_id"] not in valid]
     if dropped:
-        print(f"discarded {len(dropped)} row(s) from a previous grid", flush=True)
+        print(f"discarded {len(dropped)} row(s) that do not match the current grid", flush=True)
     done = {r["config_id"] for r in rows}   # configs already scored - skipped in the loop below
 
     for i, cfg in enumerate(combos, 1):
@@ -393,29 +379,23 @@ def run(daily: pd.DataFrame, tag: str = "recovered", periods=("validation", "cal
 
 
 def load(tag: str, daily: pd.DataFrame, encoder_days: int):
-    """Reload a checkpoint `train()` already fit and saved, paired with the exact
-    `TimeSeriesDataSet` it was fit against - so a later notebook can forecast a NEW period from
-    the saved model without paying for a retrain (`outputs/models/` "must outlive the kernel" -
-    README §8).
+    """Reload a checkpoint `train` already fit, paired with the `TimeSeriesDataSet` it was fit
+    against, so a later notebook can forecast a new period without paying for a retrain.
 
-    Rebuilding `training` here is safe: `_dataset` is a deterministic function of the
-    training-window rows and `encoder_days`, neither of which involves the model's learned
-    weights, so the object built here is the training dataset `train` used, not an
-    approximation of it. `encoder_days` isn't saved on the checkpoint itself, so pass the value
-    actually used to fit it - e.g. `best_params(pd.read_csv(config.tft_tuning(tag)))["encoder_days"]`.
+    Rebuilding `training` is exact, not an approximation: `_dataset` is a deterministic function of
+    the training-window rows and `encoder_days`, neither of which touches the learned weights. The
+    checkpoint does not store `encoder_days`, so pass the value it was fit with, e.g.
+    `best_params(pd.read_csv(config.tft_tuning(tag)))["encoder_days"]`.
     """
     ckpt = config.tft_checkpoint(tag)
     if not ckpt.exists():
         raise FileNotFoundError(f"{ckpt.name} missing - run forecast.run(..., tag='{tag}') first.")
     training = _dataset(_prepare(daily), TARGETS[tag], encoder_days)
-    # `map_location` pins the WEIGHTS to this machine's device. It is not by itself sufficient: a
-    # checkpoint also pickles `loss` and `logging_metrics` into `hyper_parameters`, and torchmetrics
-    # objects store their own `_device`. Fit on an Apple GPU, those come back tagged `mps:0`, and
-    # Lightning's `.to()` walks into `Metric._apply`, which builds `torch.zeros(1, device=self._device)`
-    # BEFORE moving anything - so any machine without an MPS backend dies with
-    # `NotImplementedError: Could not run 'aten::empty.memory_format' ... 'MPS' backend`.
-    # The committed checkpoints have had those attributes normalised to CPU (weights untouched and
-    # verified identical); this argument keeps a freshly-fit one portable too.
+    # `map_location` pins the weights to this machine's device, which is necessary but not enough on
+    # its own: a checkpoint also pickles `loss` and `logging_metrics`, and torchmetrics objects carry
+    # their own `_device`. Fit on an Apple GPU those come back tagged `mps:0`, and Lightning's `.to()`
+    # allocates on `self._device` before moving anything, so a machine with no MPS backend raises.
+    # The committed checkpoints carry CPU-normalised attributes; this keeps a fresh fit portable too.
     model = TemporalFusionTransformer.load_from_checkpoint(
         ckpt, map_location=torch.device(_select_accelerator("auto").replace("gpu", "cuda")))
     return model, training
@@ -426,20 +406,16 @@ def forecast_test(daily: pd.DataFrame, tag: str = "recovered", save: bool = True
     """Forecast the TEST week from the ALREADY-FIT checkpoint for `tag` - no retraining, and
     nothing about the test week informs the model, which was early-stopped on validation alone.
 
-    Ground rule: the test week is opened once, at the final evaluation (README §5, "the test week
-    is touched once") - call this only when you mean to score or order against it, not as part of
-    routine tuning.
+    The test week is opened once, at the final evaluation, so call this only when you mean to score
+    or order against it.
 
-    `encoder_days` defaults to the value in this tag's tuning table. Pass it explicitly for a tag
-    whose checkpoint exists but whose tuning table does not - which is the raw arm's situation: it
-    was fit alongside the recovered arm (the comparison changes only the target, never the config)
-    but only the recovered search was saved. `load` notes that the encoder length is NOT stored on
-    the checkpoint, so it cannot be recovered from the file.
+    `encoder_days` defaults to the value in this tag's tuning table. The raw arm needs it passed
+    explicitly: it was fit alongside the recovered arm on the same config, so it has a checkpoint but
+    no search of its own, and the checkpoint does not store the encoder length.
 
-    A wrong `encoder_days` does not raise - it silently builds a differently-conditioned dataset and
-    returns a plausible-looking forecast. So a borrowed value has to be VERIFIED, by re-forecasting
-    the window already on disk and diffing; notebook 04 section 4 does exactly that before it trusts
-    the raw arm's test forecast, and it reads nothing sealed to do so.
+    A wrong `encoder_days` does not raise. It builds a differently-conditioned dataset and returns a
+    plausible-looking forecast, so a borrowed value has to be verified by re-forecasting a window
+    already on disk and diffing it; notebook 04 section 4 does that before trusting the raw arm.
     """
     if encoder_days is None:
         tuning_path = config.tft_tuning(tag)

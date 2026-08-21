@@ -1,6 +1,7 @@
-"""Calibration Results - poster card 4 (are the bands honest?), plus the content posterplan.md
-cut for space: the full 4-arm x 2-band x 2-window table (16 rows, only the headline arm made it
-onto the poster).
+"""Calibration Results: are the forecast bands honest?
+
+Carries the full 4-arm x 2-band x 2-window table, 16 rows, where the poster had room for the
+headline arm alone.
 """
 import sys
 from pathlib import Path

@@ -50,8 +50,8 @@ def load_daily(kind: str = "daily") -> pd.DataFrame:
     `kind="recovered"` reads the parquets `run` wrote instead - the same raw columns plus
     `recovered_demand`. Both go through the identical pipeline because NEITHER file stores derived
     columns: `_save_recovered` strips lag/rolling/`period` before writing, so they are rebuilt here
-    and cannot describe a subset that no longer exists. Downstream stages take this route rather
-    than loading `daily` and joining `recovered_demand` onto it - one pair of parquets, same frame.
+    and so cannot describe a stale subset. Downstream stages take this route instead of loading
+    `daily` and joining `recovered_demand` onto it: one pair of parquets, one frame.
     """
     return add_period(add_lag_roll_features(data_io.load(kind)))
 
@@ -127,13 +127,11 @@ class SeriesHourMean:
 
     def predict(self, X: pd.DataFrame) -> np.ndarray:
         def lookup(table, cols):
-            # reindex, not merge: a combination that was never seen during fit (e.g. this exact
-            # store/product/hour never sold in training) comes back NaN instead of raising
+            # reindex, not merge: a combination unseen at fit time comes back NaN, not an error
             return table.reindex(pd.MultiIndex.from_frame(X[cols])).to_numpy()
 
-        # three-level fallback, most specific first: try this exact (store, product, hour) mean;
-        # anywhere that's NaN (never seen at fit time), fall back to the (product, hour) mean across
-        # all stores; anywhere that's still NaN, fall back to the plain (hour) mean across everything
+        # three levels, most specific first: (store, product, hour), then (product, hour) pooled
+        # across stores, then the plain hour mean
         pred = lookup(self.sp_hour, ["store_id", "product_id", "hour"])
         pred = np.where(np.isnan(pred), lookup(self.p_hour, ["product_id", "hour"]), pred)
         return np.where(np.isnan(pred), self.g_hour.reindex(X["hour"]).to_numpy(), pred)
@@ -172,14 +170,12 @@ def training_hours(hourly: pd.DataFrame) -> pd.DataFrame:
 def _stage2(hourly: pd.DataFrame, model, bias_correction: float) -> pd.DataFrame:
     """Replace each stocked-out 06:00-22:00 hour with the corrected prediction, floored at what was
     observed; keep every other hour as-is; sum to a daily `recovered_demand`."""
-    # predict every hour (cheaper than predicting only the stocked-out ones, and simpler code),
-    # then only the stocked-out active-window hours below actually use the prediction
+    # predict every hour, then use the prediction only on stocked-out active-window hours below
     expected = np.clip(model.predict(_model_matrix(hourly)), 0, None) * bias_correction
     in_window = (hourly["hour"] >= ACTIVE_LO) & (hourly["hour"] < ACTIVE_HI)
     recovered = np.where((hourly["hour_stockout"] == 1) & in_window,
                          np.maximum(expected, hourly["hour_sale"]),   # floor at observed
                          hourly["hour_sale"])                         # in-stock / off-window
-    # sum the 24 (mostly recorded, sometimes recovered) hours back into one daily total per series
     return (hourly.assign(hour_recovered=recovered)
             .groupby(KEY, as_index=False).agg(recovered_demand=("hour_recovered", "sum")))
 
@@ -190,19 +186,17 @@ def _recover_test_days(hourly: pd.DataFrame, test_days: pd.DataFrame, make_model
     """Recover `test_days` as if every 06:00-22:00 hour had been stocked out; return their daily
     totals. Stage 1 is trained with those days held out, so it predicts days it has never seen -
     without that, the score would measure memorisation."""
-    # a row-level mask: True for every hourly row that belongs to one of the held-out test days
     is_test = pd.Series(   # MultiIndex.isin, not a set of tuples: same mask, far faster
         pd.MultiIndex.from_frame(hourly[KEY]).isin(pd.MultiIndex.from_frame(test_days[KEY])),
         index=hourly.index)
 
-    # fit only on stocked, training-period hours that are NOT part of a held-out test day
     train = training_hours(hourly)
     train = train[~is_test.loc[train.index]]
     model = make_model(random_state)
     model.fit(_model_matrix(train), train["hour_sale"].values)
 
-    # now predict every hour of the held-out days as if it had been stocked out, regardless of
-    # whether it actually was - that's what turns a full-shelf day into a fair test of recovery
+    # predict every hour of the held-out days as if it had been stocked out: that is what turns a
+    # full-shelf day into a test of recovery
     held_out = hourly[is_test].copy()
     expected = np.clip(model.predict(_model_matrix(held_out)), 0, None)
     in_window = (held_out["hour"] >= ACTIVE_LO) & (held_out["hour"] < ACTIVE_HI)
@@ -214,7 +208,7 @@ def evaluate(daily: pd.DataFrame, make_model=stage1_lgbm, n_days: int = N_TEST_D
              random_state: int = config.RANDOM_STATE) -> dict:
     """Train / test one Stage-1 candidate and return its scores.
 
-    A real stockout has no ground truth, so the test set is built from days the shelf was FULL -
+    A real stockout has no ground truth, so the test set is built from days the shelf was full:
     days whose recorded total IS the true demand. Those days are held out of training, recovered as
     if they had been stocked out 06:00-22:00, then compared against the total that was hidden.
 

@@ -1,12 +1,11 @@
-"""EDA - how much the censoring problem varies store to store and product to product: the
-population underneath every scored number on the LATER pages (Recovery onward), and the evidence
-behind which store the One Store page (app/pages/10_One_Store.py) walks through by default.
-Placed right after Pipeline, before any modelling page, so a reader sees how uneven the problem
-actually is before seeing how it's addressed.
+"""EDA: how much the stockout problem varies store to store and product to product.
 
-Reads the already-recovered daily parquet only. The `store_view.*_stats` rollups are cheap pandas
-groupbys (counts and means), not a model and not a recompute of anything upstream - same pattern
-app/pages/10_One_Store.py already uses for `store_stats`/`pick_store`.
+This is the population underneath every scored number on the pages that follow, and the evidence
+behind which store the One Store page (app/pages/10_One_Store.py) opens on. It sits before any
+modelling page so a reader sees how uneven the problem is before seeing how it is addressed.
+
+Reads the committed recovered parquet only. The `store_view.*_stats` rollups are counts and means,
+not a model and not a recompute of anything upstream.
 """
 import sys
 from pathlib import Path

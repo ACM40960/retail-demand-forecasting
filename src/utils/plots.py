@@ -3,10 +3,9 @@
 Every function RETURNS the figure and only saves when `save_path` is given, so the app renders
 exactly what the notebook shows inline - the app never recomputes anything.
 
-Each builder CLOSES the figure before returning it. Returning it is what displays it in a notebook;
-leaving it open as well makes the inline backend draw it a second time at the end of the cell, so
-the reader sees the same chart twice. A closed figure still renders from the return value and still
-works with `st.pyplot`.
+Each builder closes the figure before returning it. Returning it is what displays it in a notebook,
+and leaving it open as well makes the inline backend draw it a second time at the end of the cell. A
+closed figure still renders from the return value and still works with `st.pyplot`.
 """
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -15,7 +14,7 @@ from .poster import PALETTE, _QUANTILE_COLORS
 
 
 def plot_recovery_overlay(series_df: pd.DataFrame, title_suffix: str = ""):
-    """Recorded sales vs. recovered demand for ONE series (already filtered), stockout days
+    """Recorded sales vs. recovered demand for one series (already filtered), stockout days
     shaded. The gap on shaded days is the demand the till never saw."""
     ex = series_df.sort_values("dt")
     fig, ax = plt.subplots(figsize=(10, 4))
@@ -77,27 +76,24 @@ def plot_cost_sweep(sweep: pd.DataFrame, save_path=None):
     return fig
 
 
-# Column names differ per family because each writes what its own trainer reports: XGBoost counts
-# boosting rounds, Lightning counts epochs. Normalised here rather than at write time so each saved
-# curve stays a faithful record of what its trainer produced.
+# Each family writes what its own trainer reports: XGBoost counts boosting rounds, Lightning counts
+# epochs. Normalised here, not at write time, so each saved curve stays a record of its own trainer.
 _CURVE_COLS = {"xgb": ("round", "train", "validation", "boosting round"),
                "tft": ("epoch", "train_loss", "val_loss", "epoch")}
 
 
 def plot_learning_curves(curves: dict, save_path=None):
-    """Train-vs-validation loss per family, ONE PANEL EACH, with the validation minimum marked.
+    """Train-vs-validation loss per family, one panel each, with the validation minimum marked.
 
     `curves` maps a family in `_CURVE_COLS` to its saved curve frame; families whose file does not
     exist yet are simply left out, so this renders with one panel or two.
 
-    Deliberately NOT one shared pair of axes. The x-axes count different things (boosting rounds
-    against epochs) and each y is that family's own loss implementation over its own quantile set, so a
-    single plot would invite reading a vertical gap between two curves as a difference in accuracy when
-    it is a difference in units. Separate panels, and the y-labels say so.
+    Not one shared pair of axes. The x-axes count different things, boosting rounds against epochs,
+    and each y is that family's own loss over its own quantile set, so a single plot would invite
+    reading a vertical gap as a difference in accuracy when it is a difference in units.
 
-    The marked minimum is the whole point of the figure: everything left of it is the model still
-    learning, everything right of it is the model memorising. Where the CHOSEN config sits relative to
-    that mark is the overfitting question, answered by looking.
+    The marked minimum is what the figure is for: left of it the model is still learning, right of it
+    it is memorising, and where the chosen config sits against that mark is the overfitting question.
     """
     have = [(fam, curves[fam]) for fam in _CURVE_COLS if fam in curves and curves[fam] is not None]
     if not have:
@@ -111,16 +107,14 @@ def plot_learning_curves(curves: dict, save_path=None):
         ax.plot(curve[x], curve[train_col], color="tab:blue", linewidth=2, label="training")
         ax.plot(curve[x], curve[val_col], color="tab:red", linewidth=2, label="validation")
         ax.axvline(best[x], color="grey", linestyle="--", linewidth=1)
-        # Annotate only the minimum. A label on every point is unreadable and the shape carries the
-        # rest of the story on its own.
+        # only the minimum: a label on every point is unreadable, and the shape carries the rest
         ax.annotate(f"validation best\n{xlabel} {int(best[x])} · {best[val_col]:.4f}",
                     xy=(best[x], best[val_col]), xytext=(0.30, 0.70), textcoords="axes fraction",
                     fontsize=9, color="dimgrey",
                     arrowprops=dict(arrowstyle="-", color="grey", linewidth=0.8))
 
-        # The turn upward is the finding, and on the full y-range it is invisible - a rise of ~0.001 on
-        # an axis spanning 0.15 reads as a flat line. The inset is that region at a scale where the U
-        # is legible; without it the figure appears to show a model that simply converges.
+        # The turn upward is the finding, and on the full y-range it is invisible: a rise of ~0.001
+        # on an axis spanning 0.15 reads as flat. The inset shows that region at a legible scale.
         tail = curve[curve[x] >= best[x] * 0.35]
         if len(tail) > 5 and tail[val_col].max() - tail[val_col].min() > 0:
             zoom = ax.inset_axes([0.53, 0.13, 0.44, 0.36])
@@ -146,7 +140,7 @@ def plot_learning_curves(curves: dict, save_path=None):
 
 
 def plot_store_product_week(week_df: pd.DataFrame, store_id, product_id):
-    """One store-product's test week (app/pages/8_One_Store.py): recorded sales, stockout days
+    """One store-product's test week (app/pages/10_One_Store.py): recorded sales, stockout days
     shaded, the naive order and the recommended order at the chosen cost ratio - both decided
     BEFORE the day, so both are drawn as lines against what actually sold that day, stockout day
     or not. Screen figure, not a poster one - no save_path, no print-resolution export."""
@@ -173,15 +167,14 @@ def plot_store_product_week(week_df: pd.DataFrame, store_id, product_id):
 
 
 def plot_store_week(store_df: pd.DataFrame, store_id, save_path=None):
-    """Whole store's test week (app/pages/8_One_Store.py): every product's recorded sales, naive
+    """Whole store's test week (app/pages/10_One_Store.py): every product's recorded sales, naive
     order and recommended order summed per day, stockout share shaded. Store-level sibling of
     `plot_store_product_week` - same three series, summed across products instead of one.
 
-    A store carries dozens of products, so on any given day SOME product is almost always out of
-    stock - the boolean shading `plot_store_product_week` uses at product level would shade every
-    single day here and say nothing (verified: 28-56% of this store's products are out on EVERY
-    day of its test week). Shading intensity instead tracks the SHARE of products stocked out that
-    day, so a quiet day and a bad day look different."""
+    A store carries dozens of products, so some product is out of stock on almost every day: the
+    boolean shading `plot_store_product_week` uses at product level would shade the whole week and
+    say nothing, with 28-56% of this store's products out on every day of its test week. Shading
+    intensity tracks the share stocked out instead, so a quiet day and a bad day look different."""
     d = store_df.groupby("dt", as_index=False).agg(
         sale_amount=("sale_amount", "sum"),
         naive_order_quantity=("naive_order_quantity", "sum"),
@@ -218,7 +211,7 @@ def plot_store_week(store_df: pd.DataFrame, store_id, save_path=None):
 
 def plot_operating_points(table: pd.DataFrame):
     """Three operating points against the naive rule, on the three metrics that matter at once
-    (app/pages/5_Operating_Point.py) - a screen-sized sibling of `poster.fig_quantile_anchors`:
+    (app/pages/6_Operating_Point.py) - a screen-sized sibling of `poster.fig_quantile_anchors`:
     same data, same colors (`poster._QUANTILE_COLORS`), normal screen size instead of
     300dpi/24pt poster type. `table` is indexed ["naive", "waste-focused", "balanced",
     "stockout-focused"] in that order, columns "ran out %"/"demand met %"/"waste % of demand"."""
@@ -278,10 +271,9 @@ def plot_ranked_bar(df: pd.DataFrame, id_col: str, value_col: str, n: int = 15,
                     direction: str = "highest", highlight_id=None, id_prefix: str = "#",
                     xlabel: str = ""):
     """Horizontal bar of the N `direction` (`"highest"` or `"lowest"`) `value_col` rows,
-    direct-labeled, largest-magnitude entry at the top either way. Lets the EDA page's own toggle
-    decide whether this reads as "most affected" or "least affected" rather than baking a value
-    judgement into the function. `highlight_id`, if it lands inside the N shown, prints in a
-    second color so one specific store/product stands out against the rest of the ranking."""
+    direct-labeled, largest-magnitude entry at the top either way. The EDA page's own toggle decides
+    whether this reads as "most affected" or "least affected", so no value judgement is baked in here.
+    `highlight_id`, if it lands inside the N shown, prints in a second color."""
     picker = df.nlargest if direction == "highest" else df.nsmallest
     top = picker(n, value_col)
     top = top.iloc[::-1] if direction == "highest" else top   # barh draws bottom-up either way

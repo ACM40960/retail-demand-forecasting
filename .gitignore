@@ -10,7 +10,7 @@ __pycache__/
 
 # --- data ---
 # The raw subset is rebuildable from Hugging Face given (n_stores, SUBSET_SEED), so it is not
-# committed; what the subset IS gets recorded in outputs/subset_summary.md, which is.
+# committed; what the subset IS gets recorded in outputs/reports/subset_summary.md, which is.
 #
 # The *recovered* parquets ARE committed (~1.7 MB): they are the output of the recovery stage, like
 # the fitted model and recovery_params.json, and they are the input to forecasting - so the

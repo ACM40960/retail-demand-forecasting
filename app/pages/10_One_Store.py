@@ -1,11 +1,12 @@
-"""One store, recommended for all its products - the practical finale.
+"""One store, ordered across all its products.
 
-Illustrative only (n=1): the 100-store aggregate on the other pages is the evidence; this is what
-that evidence looks like for one real, typical store's real products on the sealed test week. No
-recompute of anything expensive - reads the already-calibrated test-week forecast and the
-already-recovered daily data, then applies the same vectorized newsvendor arithmetic
-(`orders.critical_fractile` / `order_quantity` / `naive_orders` / `simulate`) already used
-everywhere else in this project, filtered down to one store.
+Illustrative, not evidence: n=1, and the 100-store aggregate on the other pages is what carries the
+result. This is what that result looks like for one typical store's real products on the sealed test
+week.
+
+Nothing expensive is recomputed. It reads the calibrated test-week forecast and the recovered daily
+data, then applies the same newsvendor arithmetic used everywhere else in the project
+(`orders.critical_fractile`, `order_quantity`, `naive_orders`, `simulate`), filtered to one store.
 """
 import sys
 from pathlib import Path

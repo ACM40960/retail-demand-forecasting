@@ -11,8 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = ROOT / "data" / "processed"
 OUTPUTS_DIR = ROOT / "outputs"
 
-# outputs/ is split by artifact KIND, not by stage, so a reader looking for "the numbers" or "the
-# pictures" has one place to look rather than sifting a flat directory.
+# Split by artifact kind, not by stage, so "the numbers" and "the pictures" each have one home.
 FORECAST_DIR = OUTPUTS_DIR / "forecasts"   # parquets, one subdirectory per model family
 REPORTS_DIR = OUTPUTS_DIR / "reports"      # csv / json / md - everything with numbers in it
 PLOTS_DIR = OUTPUTS_DIR / "plots"          # png
@@ -29,15 +28,13 @@ RECOVERED_TRAIN = DATA_DIR / "daily_train_recovered.parquet"
 RECOVERED_EVAL = DATA_DIR / "daily_eval_recovered.parquet"
 
 # ---- outputs ----
-# The subset itself is rebuildable from (n_stores, RANDOM_STATE), so it is not committed. This
-# summary is: it is the committed record of what the reported numbers describe, and a rebuild
-# rewrites it.
+# The subset rebuilds from (n_stores, RANDOM_STATE) and is not committed. This summary is: it is the
+# committed record of what the reported numbers describe, and a rebuild rewrites it.
 SUBSET_SUMMARY = REPORTS_DIR / "subset_summary.md"
 BASELINE_SCORECARD = REPORTS_DIR / "baseline_scorecard.csv"
 
-# recovery: the Stage-1 model and the bias correction that together produced the recovered parquets.
-# Without them `recovered_demand` is an unexplainable column - the correction is a fitted parameter
-# applied to every recovered hour, so it belongs on disk next to its output.
+# recovery: the Stage-1 model and the bias correction that produced the recovered parquets. The
+# correction is a fitted parameter applied to every recovered hour, so it lives next to its output.
 STAGE1_MODEL = MODEL_DIR / "recovery_stage1_lgbm.txt"   # LightGBM native text format
 RECOVERY_PARAMS = REPORTS_DIR / "recovery_params.json"
 RECOVERY_COMPARISON = REPORTS_DIR / "recovery_model_comparison.csv"   # the table that picks Stage 1
@@ -57,12 +54,10 @@ RECOVERY_IMPACT = REPORTS_DIR / "recovery_impact.csv"
 # side and neither can quietly overwrite the other.
 FORECAST_SCORECARD = REPORTS_DIR / "forecast_vs_baselines.csv"
 
-# ordering: per-product-day results at the headline cost ratio, and the full cost-ratio sweep that
-# shows whether a claim holds everywhere rather than at one lucky ratio.
-# Parquet, not CSV, and not in REPORTS_DIR: 39K rows x 20 columns of per-product-day simulation output is
-# row-level DATA, which is what FORECAST_DIR and parquet are for. As a CSV it was 7.8 MB - by itself more
-# than the rest of reports/ put together, in a directory meant to hold summary tables a person reads.
-# `cost_sweep.csv` is the readable summary of this file and stays a CSV.
+# ordering: per-product-day results at the headline cost ratio, plus the full cost-ratio sweep that
+# shows whether a claim holds everywhere or only at one lucky ratio.
+# The per-day file is 39K x 20 rows of row-level data, so parquet in FORECAST_DIR, where as a CSV it
+# runs 7.8 MB. `cost_sweep.csv` is its readable summary and stays a CSV in reports/.
 ORDER_SIMULATION = FORECAST_DIR / "order_simulation.parquet"
 COST_SWEEP_CSV = REPORTS_DIR / "cost_sweep.csv"
 
@@ -82,9 +77,8 @@ def conformal_parquet(period: str, tag: str = None, family: str = "tft",
     """Conformally corrected intervals, named like the forecast they were computed from.
 
     `family` AND `target` are both in the path for the same reason they are in `forecast_parquet`:
-    an arm is (model, target), and correcting the raw arm used to overwrite the recovered arm's
-    file because only `tag` varied. That silently turned any multi-arm comparison into the same
-    arm scored twice.
+    an arm is (model, target), so with only `tag` varying the raw arm would overwrite the recovered
+    arm's file and any multi-arm comparison would be one arm scored twice.
     """
     suffix = f"_{tag}" if tag else ""
     return FORECAST_DIR / family / f"forecast_{period}_{target}_conformal{suffix}.parquet"
@@ -122,12 +116,12 @@ def gbm_tuning(tag: str):
 def learning_curve_csv(family: str, tag: str):
     """Train-vs-eval loss per training step, for one model family.
 
-    The one measurement a hyperparameter search cannot make: a grid scores configs on validation only,
-    so it finds the best config without ever showing whether that config memorises. Saved because the
-    TFT's costs a GPU fit to reproduce.
+    The measurement a hyperparameter search cannot make: a grid scores configs on validation only, so
+    it finds the best config without showing whether that config memorises. Saved because the TFT's
+    curve costs a GPU fit to reproduce.
 
-    The two families' curves are NOT on a shared axis - the TFT's x is epochs and the tree's is boosting
-    rounds, and each uses its own loss implementation. Plot them as two panels and compare shape.
+    The two families' curves do not share an axis. The TFT's x is epochs and the tree's is boosting
+    rounds, and each uses its own loss implementation, so plot them as two panels and compare shape.
     """
     return REPORTS_DIR / f"{family}_learning_curve_{tag}.csv"
 
@@ -137,8 +131,7 @@ def tft_tuning(tag: str):
     resumes from it rather than restarting."""
     return REPORTS_DIR / f"tft_tuning_{tag}.csv"
 
-# Its wording lives here rather than in data_io, so that module holds only the numbers. Markdown
-# because the file is committed and read on GitHub.
+# Wording lives here so data_io holds only the numbers. Markdown because the file is read on GitHub.
 SUBSET_SUMMARY_MD = """# Working subset
 
 *Rebuilt {built_at} by `data_io.build_subset`. Regenerated on every rebuild - do not edit by hand.*
@@ -162,9 +155,8 @@ Store IDs: {stores}
 """
 
 # ---- frozen calendar (ISO) ----
-# The 90-day train file splits here; the shipped eval file is the TEST week and is opened once,
-# at the final evaluation. Declared once, in full, even though the calibration window is not read
-# until the calibration stage - a calendar split across files is a calendar that drifts.
+# Where the 90-day train file splits. The shipped eval file is the test week, opened once at the final
+# evaluation. Declared here in full, because a calendar split across files is a calendar that drifts.
 TRAIN_START = "2024-03-28"   # training: the train file starts here
 TRAIN_END = "2024-05-28"
 VAL_START = "2024-05-29"   # validation: early stopping, model choice, baseline scorecard
@@ -180,9 +172,9 @@ ACTIVE_HOURS = (6, 22)   # the dataset's annotated 06:00-22:00 censoring window
 
 SARIMA_SAMPLE = 30       # series sampled for the SARIMA baseline (it is slow per series)
 
-# Which stores `build_subset` draws. FROZEN - changing it redraws the whole dataset and every
-# artifact downstream stops describing the data it was computed on. Kept separate from
-# RANDOM_STATE so a model-seed experiment can never move the subset by accident.
+# Which stores `build_subset` draws. Frozen: changing it redraws the dataset and every artifact
+# downstream stops describing the data it was computed on. Separate from RANDOM_STATE so a
+# model-seed experiment cannot move the subset by accident.
 SUBSET_SEED = 123
 
 # Model fits and train/val splits. Safe to vary: it changes results, never the data.

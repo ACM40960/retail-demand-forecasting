@@ -1,5 +1,4 @@
-"""Final Ordering Decision - poster card 5: the cost sweep and the matched-availability result,
-the two charts that do the most persuasive work in the whole project.
+"""Final Ordering Decision: the cost sweep and the matched-availability result.
 """
 import sys
 from pathlib import Path

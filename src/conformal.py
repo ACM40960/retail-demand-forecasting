@@ -1,35 +1,27 @@
 """Honest bands. Split conformalized quantile regression (CQR, Romano 2019) applied post-hoc to a
-saved quantile forecast - no retraining.
+saved quantile forecast, with no retraining.
 
 The raw 80% band (q10/q90) is overconfident: it covers ~73% of actuals on validation, not 80%. CQR
 calibrates one offset Q on the CALIBRATION period and widens the band to [q10-Q, q90+Q], which under
 EXCHANGEABILITY restores >= nominal coverage.
 
-That assumption is where it goes wrong, and the diagnosis drove the fix. A forecast horizon walks
-forward in time, so a later week is not exchangeable with the window the offset was fitted on, and
-coverage decays with distance: plain CQR overshoots on the near window and undershoots on the far one.
+Exchangeability is what a forecast horizon breaks. A later week is not exchangeable with the window
+the offset was fitted on, so coverage decays with distance: plain CQR overshoots on the near window
+and undershoots on the far one, by about 2.5 coverage points per window of separation.
 
-Two things were measured before changing anything, both WITHOUT opening the test week:
+`FORWARD_DRIFT_INFLATION` absorbs that drift, calibrating at 0.83 to land on 0.80 a window later.
+`_is_forward` reads the frozen calendar, so only a window after the calibration set is inflated.
 
-    the functional form is not the problem   multiplicative band-scaling and Mondrian per-band
-                                             offsets land within 0.0003 of plain additive CQR
-    the DISTANCE is the problem              coverage falls ~2.5 points per window of separation
+One method, no switches: multiplicative band-scaling and Mondrian per-censoring-band offsets both
+land within 0.0003 of plain additive CQR on the same harness, so the functional form is not what
+limits coverage here.
 
-Hence `FORWARD_DRIFT_INFLATION`: calibrate at 0.83 to land on 0.80 a window later. Applied
-automatically and only where it belongs - `_is_forward` reads the frozen calendar, so a window
-BEFORE the calibration set (validation) is never inflated and a window after it (test) always is.
+Coverage carries a day-block bootstrap interval (`coverage_ci`) instead of a Kupiec test. Kupiec
+assumes independent rows, and these cluster by date at a design effect of 13.7, so it rejects misses
+far too small to matter.
 
-ONE method, no switches. Mondrian per-band offsets and multiplicative band-scaling were both
-measured on the harness above and land within 0.0003 of this, so they are recorded here rather than
-left in the code as options nobody should pick.
-
-Coverage is reported with a DAY-BLOCK bootstrap interval (`coverage_ci`), not a Kupiec test. Kupiec
-assumes independent rows; these are clustered by date at a design effect of 13.7, so it rejects
-misses far too small to matter and was removed rather than reported alongside a valid statistic.
-
-Scored on non-stockout days only, where recorded sales are true demand. Corrected intervals are
-saved for EVERY evaluated period, not just test, so ordering can be iterated on validation without
-opening the test week.
+Scored on non-stockout days only, where recorded sales are true demand. Corrected intervals are saved
+for every evaluated period, so ordering can be iterated on validation without opening the test week.
 """
 import json
 
@@ -42,45 +34,37 @@ from . import forecast
 LOWER, UPPER = "q10", "q90"   # q10/q90 = the 80% central band
 NOMINAL = 0.80
 
-# Windows in calendar order. Used to decide whether an eval window sits AFTER the calibration set,
-# which is the only thing that changes how the offset is fitted - see FORWARD_DRIFT_INFLATION.
+# Calendar order, so `_is_forward` can tell whether an eval window sits after the calibration set.
+# That is the only thing that changes how the offset is fitted.
 PERIOD_ORDER = ("training", "validation", "calibration", "test")
 
-# How much wider to calibrate when the eval window sits FORWARD of the calibration set. Applied by
-# `run` automatically via `_is_forward`, never by hand: validation sits BEFORE the calibration
-# window, has no forward drift to absorb, and inflating it there overshoots (0.826 -> 0.858,
-# measured). That mistake is the reason this is derived from the calendar rather than passed in.
-#
-# Plain CQR loses ~2.5 coverage points per window of forward distance, because the offset is fitted
-# on one fortnight and applied to the next. Asking for a slightly wider band absorbs that.
-#
-# MEASURED, not guessed, and measured WITHOUT the test week: fitting on validation and applying to
-# calibration - the same one-window-forward shift as calibration -> test - gives
+# How much wider to calibrate when the eval window sits forward of the calibration set. Measured by
+# fitting on validation and applying to calibration, the same one-window shift as calibration -> test,
+# so the test week plays no part in choosing it:
 #
 #     calibrate at   0.80    0.83    0.85    0.87    0.90
 #     land on        0.775   0.804   0.822   0.840   0.870
 #
-# so +0.03 is what lands on 0.80 a window later. Chosen on validation -> calibration and applied
-# unchanged, which is why using it on the test week is not tuning on the test week.
+# +0.03 lands on 0.80 a window later. Forward windows only: validation sits before the calibration
+# set, has no drift to absorb, and inflating it there overshoots to 0.858.
 FORWARD_DRIFT_INFLATION = 0.03
+
 
 def load_forecasts(periods=("calibration", "validation", "test"), master: pd.DataFrame = None,
                    forecast_tag: str = None, observed_only: bool = True, family: str = "tft"):
-    """Saved forecast per period, joined to actuals. `forecast_tag` selects which target to read -
-    "recovered" (default) or "raw" - and `family` which model wrote it ("tft" or "xgb"). Every
-    current run carries all six quantiles (q025/q10/q50/q80/q90/q975) in that ONE file, so the 80%
-    and 95% bands are read from the same saved forecast, just corrected by separate `run()` calls
-    below.
+    """Saved forecast per period, joined to actuals. Returns ({period: frame}, master).
 
-    Adds `observed` (True on non-stockout days, where demand was truly seen), `y` (= sale_amount,
-    meaningful ONLY where observed) and `recovered_demand` (the filled-in series, meaningful
-    everywhere - what the ordering stage simulates against).
+    `forecast_tag` selects the target, "recovered" (default) or "raw"; `family` selects the model
+    that wrote it, "tft" or "xgb". One file carries all six quantiles (q025/q10/q50/q80/q90/q975),
+    so both bands read the same forecast and only their offsets differ.
 
-    `observed_only=True` (default) returns just the non-stockout rows - the only rows where demand
-    was actually seen, and so the only rows an offset may be fitted or scored on. Pass False to keep
-    every product-day: ordering runs on all days, and the censored ones are exactly where the
-    recovery layer pays off.
-    Returns ({period: frame}, master)."""
+    Adds `observed` (True on non-stockout days), `y` (= sale_amount, meaningful only where observed)
+    and `recovered_demand`, which the ordering stage simulates against.
+
+    `observed_only=True` keeps just the non-stockout rows, the only ones an offset may be fitted or
+    scored on. Pass False for every product-day: ordering runs daily, and the censored days are
+    where the recovery layer pays off.
+    """
     master = master if master is not None else forecast.build_master_frame()
     cols = ["store_id", "product_id", "dt", "sale_amount", "recovered_demand",
             "stock_hour6_22_cnt"]
@@ -95,20 +79,13 @@ def load_forecasts(periods=("calibration", "validation", "test"), master: pd.Dat
                 f"tag '{forecast_tag or 'recovered'}' first. TFT: forecast.run(..., "
                 f"periods=(...,'{p}')) or forecast.forecast_test. XGBoost: "
                 f"gbm.run(..., periods=(...,'{p}')).")
-        # `forecast._prepare` casts store_id/product_id to STRING categoricals for the TFT's
-        # embeddings, so every saved forecast parquet carries them as strings - but `master`
-        # (and everything else in the pipeline: recovery, data_io, orders.py's KEY merges) keeps
-        # them as the raw integer IDs. Merging string-vs-int keys doesn't silently mismatch, it
-        # raises (pandas refuses to merge on differently-typed columns) - cast back here, once,
-        # rather than at every call site. `metrics.attach_bucket` is the same fix for the same
-        # reason, on the path where a forecast frame is grouped by censoring band instead of merged.
-        # `forecast.CARRY` already saves sale_amount/stock_hour6_22_cnt/recovered_demand INTO
-        # every forecast parquet (so forecast.py's own scoring can run standalone) - merging
-        # `master[cols]` on top without dropping them first doesn't error, it silently suffixes
-        # every one of them to `_x`/`_y`, and every line below reading the bare column name
-        # would raise (or worse, silently read the wrong one if the suffix ever changed).
-        # `master` is treated as authoritative here; the carried copies are redundant duplicates
-        # of the exact same source rows, dropped rather than merge-suffixed.
+        # Two fixes the merge needs. `forecast._prepare` stores the IDs as string categoricals for
+        # the TFT's embeddings while the rest of the pipeline keeps raw ints, and pandas refuses to
+        # merge differently-typed keys, so cast them back once here (`metrics.attach_bucket` is the
+        # same fix on the grouping path). `forecast.CARRY` also writes sale_amount /
+        # stock_hour6_22_cnt / recovered_demand into each parquet so forecast.py can score
+        # standalone; those duplicate `master`, and left in place they suffix to `_x`/`_y` and break
+        # every bare column name below. `master` is authoritative, so drop the copies.
         fc = pd.read_parquet(paths[p]).astype(id_dtypes)
         fc = fc.drop(columns=[c for c in cols[3:] if c in fc.columns])
         merged = fc.merge(master[cols], on=cols[:3], how="left")
@@ -119,11 +96,8 @@ def load_forecasts(periods=("calibration", "validation", "test"), master: pd.Dat
 
 
 def nonconformity(df: pd.DataFrame, lower=LOWER, upper=UPPER) -> np.ndarray:
-    """CQR score E_i = max(q_lo - y, y - q_hi): how far y falls outside the band, negative when
-    comfortably inside (Romano 2019 eq. 6)."""
-    # if y sits below q_lo, the first term is positive and the row scores its distance below the
-    # band; if y sits above q_hi, the second term is positive instead. A row comfortably inside
-    # the band makes both terms negative, and max() picks whichever is less negative (closest to 0).
+    """CQR score E_i = max(q_lo - y, y - q_hi): how far y falls outside the band, negative for a row
+    inside it, where max() gives the distance to the nearer edge (Romano 2019 eq. 6)."""
     return np.maximum(df[lower].values - df["y"].values, df["y"].values - df[upper].values)
 
 
@@ -131,9 +105,8 @@ def conformal_offset(scores: np.ndarray, alpha: float) -> float:
     """The finite-sample split-conformal quantile - ceil((n+1)(1-alpha))/n of the scores - i.e.
     the smallest widening that guarantees >= 1-alpha coverage on exchangeable data."""
     n = len(scores)
-    # not simply the alpha-quantile of the scores: the (n+1) and ceil() are the finite-sample
-    # correction from the CQR paper, which is what makes the coverage guarantee hold exactly rather
-    # than only in the limit of infinite calibration data
+    # the (n+1) and ceil() are the finite-sample correction: without them the guarantee holds only
+    # in the limit of infinite calibration data
     return float(np.quantile(scores, min(1.0, np.ceil((n + 1) * (1 - alpha)) / n), method="higher"))
 
 
@@ -147,26 +120,20 @@ def interval_coverage(df: pd.DataFrame, lower: str, upper: str) -> dict:
 
 def coverage_ci(df: pd.DataFrame, lower: str, upper: str, n_boot: int = 2000,
                 seed: int = 0) -> dict:
-    """Coverage with a 95% interval from a DAY-BLOCK bootstrap - resample whole dates, not rows.
+    """Coverage with a 95% interval from a day-block bootstrap: resample whole dates, not rows.
 
-    This is the honest replacement for Kupiec here. Kupiec assumes independent draws, and these
-    rows are not remotely independent: 5,601 series share each date, so a busy Saturday moves
-    thousands of rows the same way. Measured, the between-day spread is 13.7x what independence
-    predicts, which puts the EFFECTIVE sample near 3,500 rather than 48,000 - so Kupiec is handed
-    fourteen times more evidence than actually exists and rejects deviations far too small to
-    matter. It returns p = 0.0 on a 2.5-point miss.
+    5,601 series share each date, so a busy Saturday moves thousands of rows together. The measured
+    between-day spread is 13.7x what independence predicts, putting the effective sample near 3,500
+    against a nominal 48,000, which is why Kupiec returns p = 0.0 on a 2.5-point miss.
 
-    Resampling whole days keeps the within-day correlation intact, so the interval reflects the
-    evidence that is really there. Read it as "covers 82.6%, and 80% is outside the interval":
-    a small real miss, rather than a catastrophic one.
+    Resampling whole days keeps the within-day correlation, so the interval reflects the evidence
+    that is there. Read it as "covers 82.6%, and 80% sits outside the interval": a small real miss.
     """
     y = df["y"].values
     hit = ((y >= df[lower].values) & (y <= df[upper].values)).astype(float)
-    # blocks = a list of arrays, one per day, of the 5,601 hits on that day. The bootstrap resamples
-    # whole days, not rows, so the within-day correlation is preserved.
+    # one array of hits per day, so the resample below draws whole days and keeps their correlation
     blocks = [g.to_numpy() for _, g in pd.Series(hit, index=df["dt"].values).groupby(level=0)]
     rng = np.random.default_rng(seed)
-    # draws is the mean coverage of a bootstrap sample of the day-blocks, repeated n_boot times
     draws = [np.concatenate([blocks[i] for i in rng.integers(0, len(blocks), len(blocks))]).mean()
              for _ in range(n_boot)]
     lo, hi = np.percentile(draws, [2.5, 97.5])
@@ -177,9 +144,7 @@ def coverage_ci(df: pd.DataFrame, lower: str, upper: str, n_boot: int = 2000,
 def _is_forward(eval_period: str, calibration_periods) -> bool:
     """Does `eval_period` sit after every calibration window?
 
-    The one thing that changes how the offset is fitted, and it is read off the frozen calendar
-    rather than asked of the caller - because the caller (me) got it wrong once, inflating a
-    BACKWARD window and overshooting 0.826 -> 0.858.
+    Read off the frozen calendar, never passed in: only forward windows take the drift inflation.
     """
     return (PERIOD_ORDER.index(eval_period)
             > max(PERIOD_ORDER.index(p) for p in calibration_periods))
@@ -191,26 +156,20 @@ def run(nominal: float = NOMINAL, lower: str = LOWER, upper: str = UPPER,
         family: str = "tft", master: pd.DataFrame = None) -> dict:
     """Fit CQR on the calibration set, apply it to `eval_periods`, report coverage, and save.
 
-    ONE method, no method arguments. Split CQR with a single additive offset, widened by
-    `FORWARD_DRIFT_INFLATION` when - and only when - the eval window sits after the calibration set.
-    Everything below selects WHICH DATA to run it on, never which technique:
+    Split CQR with one additive offset, widened by `FORWARD_DRIFT_INFLATION` only when the eval
+    window sits after the calibration set. No argument here picks a technique; each picks data:
 
     - `lower`/`upper`: the band to correct. 80% is the default (`run(0.80, "q10", "q90",
-      tag="wide80")`); 95% is `run(0.95, "q025", "q975", tag="wide95")` - the same saved forecast,
-      a different pair of columns and its own offset, which is why `orders.py` reads two conformal
-      outputs from one forecast file.
-    - `eval_periods`: defaults to validation ALONE. The test week opens by naming it, the same rule
-      the forecast and ordering stages follow.
+      tag="wide80")`), 95% is `run(0.95, "q025", "q975", tag="wide95")`. Same saved forecast, a
+      different column pair and its own offset, which is why `orders.py` reads two conformal files.
+    - `eval_periods`: validation only by default. The test week opens by naming it, as in the
+      forecast and ordering stages.
     - `calibration_periods`: which window the offset is fitted on.
     - `forecast_tag` / `family`: which target ("recovered"/"raw") and model ("tft"/"xgb") to read.
       With `tag`, all three appear in the output filenames, so the eight (family x target x band)
-      runs a full comparison needs cannot overwrite each other.
-    - `master`: pass `forecast.build_master_frame()` when correcting several arms in a row - it is
-      the same frame every time and rebuilding it per call dominates the stage.
-
-    Rejected alternatives are recorded in the module docstring rather than left in as options:
-    Mondrian per-band offsets and multiplicative band-scaling were both measured against this and
-    land within 0.0003, so keeping them would be three switches for one answer.
+      runs of a full comparison cannot overwrite each other.
+    - `master`: pass `forecast.build_master_frame()` when correcting several arms in a row, since
+      rebuilding it per call dominates the stage.
     """
     target = forecast_tag or "recovered"
     calibration_periods, eval_periods = tuple(calibration_periods), tuple(eval_periods)
@@ -221,10 +180,9 @@ def run(nominal: float = NOMINAL, lower: str = LOWER, upper: str = UPPER,
         raise ValueError(f"{sorted(overlap)} is both calibrated and scored on - the offset would be "
                          f"fitted on the rows it is then measured against")
 
-    # every product-day is loaded; `observed` marks the non-stockout rows. The offset is FIT and
-    # SCORED on those only - demand was not seen on the rest - but it is APPLIED to and saved for
-    # all of them, because a store orders every day and the censored days are exactly where the
-    # fill-in layer pays off.
+    # Every product-day loads; `observed` marks the non-stockout rows. The offset is fitted and
+    # scored on those alone, since demand was not seen on the rest, but applied and saved for all of
+    # them: a store orders every day, and the censored days are where the fill-in layer pays off.
     data, _ = load_forecasts(tuple(dict.fromkeys(calibration_periods + eval_periods)),
                              master=master, forecast_tag=target, observed_only=False, family=family)
     missing = [c for c in (lower, upper)
@@ -266,9 +224,8 @@ def run(nominal: float = NOMINAL, lower: str = LOWER, upper: str = UPPER,
             corrected=interval_coverage(obs, f"{lower}_c", f"{upper}_c"),
             coverage_ci=coverage_ci(obs, f"{lower}_c", f"{upper}_c"))
 
-        # Every evaluated period is saved, not just test: ordering reads these files, and it has to
-        # be iterable on validation. ALL product-days go in, including the censored ones - ordering
-        # happens every day, and the censored days are exactly where the recovery layer pays off.
+        # Every evaluated period is saved, because ordering reads these files and has to be
+        # iterable on validation without opening the test week.
         if save:
             path = config.conformal_parquet(name, tag, family=family, target=target)
             path.parent.mkdir(parents=True, exist_ok=True)
@@ -277,8 +234,8 @@ def run(nominal: float = NOMINAL, lower: str = LOWER, upper: str = UPPER,
     if save:
         config.REPORTS_DIR.mkdir(parents=True, exist_ok=True)
         out_path = config.conformal_results(tag, family=family, target=target)
-        # Merge into whatever's already saved rather than overwrite it - otherwise a later
-        # test-week run erases an earlier validation record for the same arm.
+        # Merge into what is already saved, so a validation run and a test-week run for the same
+        # arm both survive in one file.
         if out_path.exists():
             results["periods"] = {**json.loads(out_path.read_text())["periods"], **results["periods"]}
         out_path.write_text(json.dumps(results, indent=2))

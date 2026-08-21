@@ -1,5 +1,5 @@
-"""Choosing an Operating Point - poster card 6/7: three quantile picks against the naive rule on
-three metrics at once (posterplan.md sec 7).
+"""Choosing an Operating Point: three quantile picks against the naive rule, on three metrics at
+once.
 """
 import sys
 from pathlib import Path
@@ -24,9 +24,9 @@ st.markdown(
 
 qmap = load_csv(config.REPORTS_DIR / "conclusion_quantile_map.csv").set_index("order at")
 
-# Reconstructed the same way poster.fig_quantile_anchors does (src/utils/poster.py:352-368): the
-# naive-rule row isn't in this CSV, but every row already reports its own waste relative to it,
-# so it's recovered algebraically from the one row where that column is exactly 0 by construction.
+# Reconstructed the same way `poster.fig_quantile_anchors` does: the naive-rule row is not in this
+# CSV, but every row reports its own waste relative to it, so it comes back algebraically from the
+# one row where that column is exactly 0 by construction.
 neutral = qmap.loc["q0.513"]
 naive = {"ran out %": 41.7, "demand met %": 79.9,
         "waste % of demand": neutral["waste % of demand"] / (1 - neutral["waste vs naive %"] / 100)}

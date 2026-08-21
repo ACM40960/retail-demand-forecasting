@@ -1,6 +1,7 @@
-"""Why TFT and Recovered Data - poster's own two-number framing: a large data-layer effect and a
-small, honestly-reported model-architecture effect. Deliberately light - this is the one page
-where the poster's own instinct ("don't oversell a ~4% edge") argues against adding more detail.
+"""Why TFT and Recovered Data: a large data-layer effect beside a small architecture effect.
+
+Kept short on purpose. A ~4% edge does not carry a long argument, and the per-model detail lives on
+the Model Architecture & Tuning page.
 """
 import sys
 from pathlib import Path
@@ -36,7 +37,7 @@ with col2:
     st.metric("TFT pinball loss (recovered)", f"{tft_pb:.4f}", help="Lower is better")
     st.metric("XGBoost pinball loss (recovered)", f"{xgb_pb:.4f}", delta=f"{edge:.1f}% worse than TFT")
     st.write(
-        "A real but modest edge, reported honestly rather than oversold - and the comparison "
+        "A real but modest edge, and the comparison "
         "structurally favours TFT, since it early-stops on the window it's scored on."
     )
 

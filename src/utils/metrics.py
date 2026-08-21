@@ -19,7 +19,6 @@ def per_date_scores(df: pd.DataFrame, actual: str = "sale_amount", pred: str = "
         W.append(ae.sum() / s[actual].sum())                       # that date's WAPE
         P.append((s[pred] - s[actual]).sum() / s[actual].sum())    # that date's WPE (signed, keeps direction)
         M.append(ae.mean())                                        # that date's MAE
-    # W/P/M each now hold one number per date; the return below averages each list across dates
     if not W:
         raise ValueError("no scorable dates: every non-stockout date had zero total sales")
     return dict(WAPE=round(np.mean(W), 4), WPE=round(np.mean(P), 4), MAE=round(np.mean(M), 4))
@@ -60,9 +59,7 @@ def pinball_by_quantile(df: pd.DataFrame, actual: str = "sale_amount") -> dict:
     """
     nz = df["stock_hour6_22_cnt"] == 0
     y = df.loc[nz, actual].values
-    # find every column that looks like a quantile name and recover its tau from the digits: "q10"
-    # -> 10/100 = 0.10, "q975" -> 975/1000 = 0.975. The column's own length picks the divisor, since
-    # two-digit names are whole percent (q10, q90) and three-digit names are tenths of a percent (q975).
+    # Name length picks the divisor: two digits are whole percent (q10), three are tenths (q975).
     taus = {c: float(c[1:]) / (1000 if len(c) > 3 else 100) for c in df.columns
             if re.fullmatch(r"q\d{2,3}", str(c))}
     return {f"pinball@{tau:g}": round(pinball(y, df.loc[nz, c].values, tau), 5)
@@ -72,10 +69,10 @@ def pinball_by_quantile(df: pd.DataFrame, actual: str = "sale_amount") -> dict:
 def attach_bucket(df: pd.DataFrame, bucket: pd.Series) -> pd.Series:
     """`bucket` (a per-series Series, e.g. `censoring_bucket`) aligned to `df`'s rows.
 
-    The ID-dtype cast is the whole reason this is a function rather than a `reindex` at each call
-    site: `forecast._prepare` stores IDs as strings for the TFT's embeddings while `censoring_bucket`
-    is int-indexed, and reindexing across that matches nothing - silently, leaving a clean-looking
-    table with only a pooled row. Every per-band table goes through here, so the guard is unmissable.
+    The ID-dtype cast is why this is a function and not a `reindex` at each call site:
+    `forecast._prepare` stores IDs as strings for the TFT's embeddings while `censoring_bucket` is
+    int-indexed, and reindexing across that silently matches nothing, leaving a clean-looking table
+    with only a pooled row. Every per-band table goes through here, so the guard cannot be skipped.
     """
     levels = bucket.index.levels
     keys = pd.DataFrame({c: df[c].astype(levels[i].dtype)
@@ -90,8 +87,8 @@ def attach_bucket(df: pd.DataFrame, bucket: pd.Series) -> pd.Series:
 
 
 def scores_by_bucket(df: pd.DataFrame, bucket: pd.Series, actual: str = "sale_amount"):
-    """`quantile_scores` per band of `bucket`, plus a pooled ALL row. The pooled row is the one that
-    hides the effect - keep both."""
+    """`quantile_scores` per band of `bucket`, plus a pooled ALL row. The pooled row hides the
+    effect, so keep both."""
     band = attach_bucket(df, bucket)
 
     def row(g):   # n counts the rows that are actually scored, not the rows in the band
@@ -107,19 +104,17 @@ def lost_sales_vs_waste(frames: dict, bucket: pd.Series, quantile: str = "q50",
     """The raw-vs-recovered trade, per band: demand that walked away against units that get binned.
 
     `frames` is `{"raw": forecast_df, "recovered": forecast_df}`. Scored on non-stockout rows only,
-    where recorded sales ARE demand, so both sides are real rather than estimated - which also makes
+    where recorded sales ARE demand, so both sides are measured rather than estimated. That also makes
     this the regime that PENALISES recovery, since those are the quiet days where it over-orders.
 
-    The column that matters is `worth_it_above_ratio` = waste added / lost sales recovered: how much
-    worse an empty shelf has to be than a bin before recovery pays. Below 1.0 it pays even when the
-    two cost the same. This is the one claim in the project that needs no accuracy improvement to
-    hold, and WAPE cannot express it - WAPE charges a unit too many and a unit too few identically.
+    `worth_it_above_ratio` = waste added / lost sales recovered is the column that decides it: how
+    much worse an empty shelf has to be than a bin before recovery pays, and below 1.0 it pays even
+    when the two cost the same. WAPE cannot express this, charging a unit too many and a unit too few
+    identically.
     """
     def one(df: pd.DataFrame, label: str) -> pd.DataFrame:
         d = df[df["stock_hour6_22_cnt"] == 0].copy()
         d["band"] = attach_bucket(d, bucket)
-        # only one of these two is ever positive on a given row: the order either fell short of
-        # demand (missed > 0, binned clipped to 0) or overshot it (binned > 0, missed clipped to 0)
         d["missed"] = (d[actual] - d[quantile]).clip(lower=0)
         d["binned"] = (d[quantile] - d[actual]).clip(lower=0)
         g = d.groupby("band", observed=True).agg(demand=(actual, "sum"),
@@ -128,10 +123,8 @@ def lost_sales_vs_waste(frames: dict, bucket: pd.Series, quantile: str = "q50",
         return pd.DataFrame({f"lost_sales_%_{label}": (g.missed / g.demand * 100).round(1),
                              f"waste_%_{label}": (g.binned / g.demand * 100).round(1)})
 
-    # one four-column table per label (raw, recovered), pasted side by side by band
     trade = pd.concat([one(df, label) for label, df in frames.items()], axis=1)
     raw, rec = list(frames)   # dict preserves insertion order, so this is ("raw", "recovered")
-    # how much of the lost-sales % recovery actually clawed back, and what it cost in extra waste
     trade["lost_sales_recovered_pts"] = (trade[f"lost_sales_%_{raw}"]
                                          - trade[f"lost_sales_%_{rec}"]).round(1)
     trade["waste_added_pts"] = (trade[f"waste_%_{rec}"] - trade[f"waste_%_{raw}"]).round(1)

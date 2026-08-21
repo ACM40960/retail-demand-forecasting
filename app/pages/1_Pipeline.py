@@ -1,8 +1,9 @@
-"""Approach & Workflow - poster's approach card (posterplan.md sec 3), extended with: which model
-runs at each stage, a final "Decision" capstone showing the pipeline's actual output (read live
-from cost_savings_ci.csv, not hand-typed), and a full explanation of the recovery bias correction
-(read live from conclusion_recovery.csv / recovery_correction_by_period.csv - neither was shown
-anywhere in the app before this).
+"""Approach & Workflow: the five pipeline stages, which model runs at each, and what the pipeline
+actually decides.
+
+Every number is read live from the saved reports rather than hand-typed - the decision capstone from
+cost_savings_ci.csv, the recovery bias correction from conclusion_recovery.csv and
+recovery_correction_by_period.csv - so a re-run cannot leave this page describing stale results.
 """
 import sys
 from pathlib import Path

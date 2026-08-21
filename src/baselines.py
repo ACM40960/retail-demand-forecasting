@@ -3,8 +3,8 @@
 Fit on training days - on censored sales, on purpose - and scored on non-stockout validation days,
 the dataset's own convention. The test week is never read here.
 
-These are an accuracy bar, not evidence about censoring: scoring skips stockout rows, which are
-exactly the rows censoring distorts, so WPE sits near zero however under-counted the series are.
+They set an accuracy bar and nothing more. Scoring skips stockout rows, the rows censoring distorts,
+so WPE sits near zero however under-counted the series are.
 
 `recovery_impact` reuses the strongest of them to answer the separate question of whether training
 on recovered demand changes the forecast, and on which products.
@@ -26,23 +26,21 @@ def add_history_features(sub_train: pd.DataFrame, sub_eval: pd.DataFrame,
     """Eval rows with lag/rolling features, as a 7-day-ahead forecast would see them.
 
     Over a 14-day window the second week's lag7 comes from the first week of the eval window, not
-    from training. That is correct for a 7-day-ahead forecast and matches what the TFT sees, so the
-    comparison stays like-for-like. Rolling stats are frozen at the last 7 training days rather
-    than rolled forward, which if anything handicaps the baseline.
+    from training. That is correct for a 7-day-ahead forecast and matches what the TFT sees. Rolling
+    stats stay frozen at the last 7 training days instead of rolling forward, which handicaps the
+    baseline if anything.
 
     `source` is the history the features are built from - raw sales for the status-quo baseline,
     `recovered_demand` for its recovered twin, so each model gets the history it would really have.
     """
-    # stack train and eval together first, so lag7/lag14 on an eval row can reach back into the
-    # training rows that precede it, then keep only the eval rows once the lags are built
+    # stacked first, so an eval row's lag7/lag14 can reach back into the training rows before it
     both = add_lagged_features(pd.concat([sub_train, sub_eval], ignore_index=True),
                                source=source, lags=(7, 14),
                                mean_windows=(), std_windows=(), fill=False)
     ev = (both[both["dt"].isin(sub_eval["dt"].unique())]
           .drop(columns=["roll7_mean", "roll7_std"], errors="ignore"))   # avoid _x/_y on merge
 
-    # rolling mean/std computed separately, frozen at the LAST 7 training days rather than rolled
-    # forward through the eval window - see the docstring for why that's a deliberate handicap
+    # frozen at the last 7 training days rather than rolled forward: see the docstring
     last7 = (sub_train.sort_values("dt").groupby(["store_id", "product_id"])[source]
              .agg(roll7_mean=lambda s: s.tail(7).mean(), roll7_std=lambda s: s.tail(7).std())
              .reset_index())
@@ -68,8 +66,7 @@ def xgboost_quantile(sub_train: pd.DataFrame, ev_feat: pd.DataFrame,
     Xtr, ytr = trf[BASELINE_FEATS], trf[target]
     Xev = ev_feat[BASELINE_FEATS].fillna(0)
     xv = ev_feat.copy()
-    # a separate model per quantile (unlike gbm.py's TFT-competitor, which fits all six jointly) -
-    # this baseline just needs q10/q50/q90, so three small fits are simpler than one shared model
+    # one model per quantile: this baseline needs only q10/q50/q90, where `gbm.py` fits six jointly
     for tau, col in [(0.1, "q10"), (0.5, "q50"), (0.9, "q90")]:
         m = XGBRegressor(objective="reg:quantileerror", quantile_alpha=tau,
                          n_estimators=300, max_depth=6, learning_rate=0.05,
@@ -97,9 +94,8 @@ def sarima_sampled(sub_train: pd.DataFrame, sub_eval: pd.DataFrame,
         if len(ev_sp) == 0:   # this series has no eval rows to score against; skip it
             continue
         try:
-            # order=(1,0,1): one autoregressive term, no differencing, one moving-average term.
-            # seasonal_order=(1,0,0,7): one seasonal AR term with a 7-day period, i.e. "today looks
-            # like the same weekday last week" folded into the model rather than hand-engineered.
+            # (1,0,1): one AR term, no differencing, one MA term. Seasonal (1,0,0,7) adds a 7-day
+            # AR term, so "the same weekday last week" comes from the model, not a hand-built lag.
             f = SARIMAX(y, order=(1, 0, 1), seasonal_order=(1, 0, 0, 7),
                         enforce_stationarity=False, enforce_invertibility=False
                         ).fit(disp=False).forecast(len(ev_sp))
@@ -136,10 +132,9 @@ def recovery_impact(daily: pd.DataFrame, save: bool = True,
     target differs, so the gap between the rows belongs to the target.
 
     **Read it per band, never pooled.** On non-stockout rows the two targets are identical, so
-    pooled the recovered twin can only look worse - it predicts demand and is marked down for
-    exceeding recorded sales. Split by how often a series sells out, the question becomes the one
-    that matters: does recovery remove the under-forecast on the products that keep selling out?
-    That is the falsifiable check on recovery's forecasting value - it can come back flat.
+    pooled the recovered twin can only look worse: it predicts demand and is marked down for
+    exceeding recorded sales. Split by how often a series sells out, the question becomes whether
+    recovery removes the under-forecast on products that keep selling out, which can come back flat.
     """
     train_df = daily[daily["period"] == "training"]
     eval_df = daily[daily["period"] == "validation"]

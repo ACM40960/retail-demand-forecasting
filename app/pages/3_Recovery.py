@@ -1,5 +1,7 @@
-"""Recovery Results - poster card 4 (recovery half), plus the content posterplan.md cut for
-space: the other 3 censoring bands, and the stockout-timing figure (fig6, cut 2026-08-14).
+"""Recovery Results: how the demand a stockout hides is reconstructed, and how well.
+
+Carries what the poster had no room for - all four censoring bands rather than the headline one, and
+the stockout-timing figure.
 """
 import sys
 from pathlib import Path

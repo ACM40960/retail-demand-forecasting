@@ -1,11 +1,8 @@
-"""Model Architecture & Tuning - every model in the pipeline (baselines, Recovery Stage 1, and
-the two forecasters), what each hyperparameter actually controls, and the tuning grid/winner for
-each searched model - read live from the saved tuning tables, never hand-typed, so a re-run that
-changes the winner can't leave this page describing a config nobody shipped.
+"""Model Architecture & Tuning: every model in the pipeline - the baselines, Recovery Stage 1 and
+the two forecasters - what each hyperparameter controls, and the grid and winner for each search.
 
-Promoted out of a "Why TFT and Recovered" expander into its own page: that page's whole editorial
-stance is "don't oversell a ~4% edge" and stays deliberately light, which argued against growing
-a 6-paragraph technical appendix inside it rather than for it.
+Grids and winners are read live from the saved tuning tables, never hand-typed, so a re-run that
+changes the winner cannot leave this page describing a config nobody shipped.
 """
 import sys
 from pathlib import Path

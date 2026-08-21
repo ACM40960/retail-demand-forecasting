@@ -1,8 +1,7 @@
-"""Limitations - poster card 8 (4-5 poster-worthy picks) plus the fuller list, transcribed from
-notebooks/05_poster_results.ipynb cell 40 (posterplan.md sec 8 points there explicitly: "from the
-notebook's fuller limitations table"). Transcribed as a constant rather than parsed live from the
-.ipynb at runtime - it's fixed narrative text, not a data artifact; re-sync by hand if that
-notebook cell changes.
+"""Limitations: the handful worth putting on a poster, then the fuller list.
+
+Held as a constant rather than parsed out of a notebook at runtime, because this is fixed narrative
+text and not a data artifact. Keep it in step with README section 7 by hand.
 """
 import sys
 from pathlib import Path

@@ -7,10 +7,9 @@ forecast parquets, `waste_at_equal_service.csv`, `cost_sweep.csv` - so a figure 
 with the table it came from. Nothing here computes a result that is not already on disk, except the
 per-band table, which is recomputed through `metrics.scores_by_bucket` for the same reason.
 
-Colour is assigned by MEANING and is constant across figures (2026-08-14 re-pick, run through the
-dataviz skill's validator rather than eyeballed - `node scripts/validate_palette.js
-"#2A78D6,#EB6834,#1BAF7A,#EDA100" --mode light`, all four adjacent-pair CVD/normal-vision checks
-pass; the surface-contrast WARN on aqua/amber is the reason every bar here carries a printed value):
+Colour carries meaning and stays constant across figures. The four hues pass adjacent-pair contrast
+checks for normal and colour-deficient vision; aqua and amber sit below 3:1 against white, which is
+why every bar here also carries a printed value:
 
     raw sales        #2A78D6 blue        recovered demand  #EB6834 orange
     TFT              #1BAF7A aqua        XGBoost           #EDA100 amber
@@ -18,8 +17,8 @@ pass; the surface-contrast WARN on aqua/amber is the reason every bar here carri
 
 The two pairs are never mixed inside one figure, so no reader has to hold four hues at once.
 
-`sale_amount` is normalised by an undisclosed coefficient, so NO axis here is ever labelled in units
-- every one is a ratio, a percentage or a normalised daily total, and each says so.
+`sale_amount` is normalised by an undisclosed coefficient, so no axis here is labelled in units:
+every one is a ratio, a percentage or a normalised daily total, and each says so.
 """
 import matplotlib as mpl
 import matplotlib.dates as mdates
@@ -37,13 +36,12 @@ PALETTE = {"raw": "#2A78D6", "recovered": "#EB6834",
 POSTER_RC = {
     "figure.dpi": 300, "savefig.dpi": 300, "savefig.bbox": "tight",
     "font.family": "sans-serif",
-    # Lato isn't installed on this machine, so Segoe UI is the closest available fallback in
-    # spirit - modern humanist sans, not DejaVu's dated, uneven-weight look. Falls forward to
-    # Lato automatically if it's ever installed, since it's still first in the list.
+    # Lato first, so it wins wherever it is installed; Segoe UI is the closest fallback in spirit,
+    # a humanist sans rather than DejaVu's uneven weights.
     "font.sans-serif": ["Lato", "Segoe UI", "Calibri", "Arial", "DejaVu Sans"],
     "font.size": 23, "axes.titlesize": 26, "axes.labelsize": 23,
     "xtick.labelsize": 21, "ytick.labelsize": 21, "legend.fontsize": 21,
-    # Titles carry hierarchy through SIZE, not weight - a page of bold titles stops meaning anything.
+    # Hierarchy through size, not weight: a page of bold titles stops meaning anything.
     "axes.titleweight": "normal", "axes.labelcolor": PALETTE["ink"],
     "text.color": PALETTE["ink"], "axes.edgecolor": PALETTE["muted"],
     "xtick.color": PALETTE["muted"], "ytick.color": PALETTE["muted"],
@@ -53,16 +51,14 @@ POSTER_RC = {
     "legend.frameon": False, "figure.facecolor": "white", "axes.facecolor": "white",
 }
 
-POSTER_DIR = config.ROOT / "poster" / "figures"   # appendix figures - not referenced by poster.html
-IMAGES_DIR = config.ROOT / "poster" / "images"     # the three figures poster.html actually includes
+POSTER_DIR = config.ROOT / "poster" / "figures"   # appendix figures, created on first save
+IMAGES_DIR = config.ROOT / "poster" / "images"    # what poster.html includes
 
 
 def _finish(fig, name: str, save: bool, dest=None):
-    """`bbox_inches='tight'` is passed explicitly rather than left to `POSTER_RC` - the
-    `rc_context` each figure builds under has already exited by the time this runs (it's a
-    plain function call after the `with` block, not nested inside it), so any legend or
-    annotation placed outside the axes' own box (e.g. a figure-level legend above the plot)
-    would otherwise be silently clipped by matplotlib's default non-tight save bbox."""
+    """`bbox_inches='tight'` is passed explicitly, not left to `POSTER_RC`: this runs after each
+    figure's `rc_context` has exited, so anything placed outside the axes box, such as a
+    figure-level legend, would otherwise be clipped by the default save bbox."""
     target = dest or POSTER_DIR
     if save:
         target.mkdir(parents=True, exist_ok=True)
@@ -73,8 +69,8 @@ def _finish(fig, name: str, save: bool, dest=None):
 
 
 def _bar_labels(ax, bars, fmt="{:.1f}", dy=0.6, color=None, weight="semibold"):
-    """Direct value labels. Not decoration: the aqua and amber slots sit below 3:1 contrast
-    against white, so the validator requires visible labels as relief."""
+    """Direct value labels. The aqua and amber slots sit below 3:1 contrast against white, so the
+    printed value is what carries the reading."""
     for b in bars:
         h = b.get_height()
         ax.text(b.get_x() + b.get_width() / 2, h + dy, fmt.format(h),
@@ -86,11 +82,10 @@ def _bar_labels(ax, bars, fmt="{:.1f}", dy=0.6, color=None, weight="semibold"):
 def fig1_problem(recovered: pd.DataFrame = None, save: bool = True):
     """One real series: recorded sales against recovered demand, stockout days shaded.
 
-    The series is chosen as the one whose training-period censoring rate is CLOSEST TO 50%, not the
-    most-censored one. That is a presentational choice and worth stating: the most-censored series
-    is out of stock on nearly every day, so the whole panel shades grey and the very contrast the
-    figure exists to show disappears. A ~50% series alternates, which is what makes the gap legible.
-    The last `days` of the training window are shown so individual days stay readable at 2 m.
+    The series is the one whose training-period censoring rate is closest to 50%, not the most
+    censored one: a series that empties nearly every day shades the whole panel grey and loses the
+    contrast the figure exists to show, where a ~50% series alternates. Only the last `days` of the
+    training window are shown, so individual days stay readable at 2 m.
     """
     from .. import recovery
     recovered = recovery.load_daily("recovered") if recovered is None else recovered
@@ -156,9 +151,8 @@ def fig2_recovery_validation(save: bool = True):
         ax.set_xlim(0, xmax)
         ax.grid(axis="y", visible=False)
 
-        # Short arrow that stays inside the chosen bar's own row: the previous version ran a long
-        # diagonal from low-centre up to the top bar, cutting straight across the "0.306"/"0.301"
-        # value labels of the bars in between.
+        # Kept inside the chosen bar's own row: a diagonal up from low-centre would cross the value
+        # labels of the bars in between.
         ax.annotate(f"{better:.1f}% better than\nthe no-model control",
                     xy=(board.loc[chosen, "wape"] * 0.5, y[0]), va="center", ha="left",
                     xytext=(xmax * 0.52, y[0]),
@@ -172,8 +166,8 @@ def fig2_recovery_validation(save: bool = True):
 def fig3_per_band(daily: pd.DataFrame = None, save: bool = True):
     """Change in WAPE from training on recovered demand, per censoring band, both model families.
 
-    Recomputed from the four saved validation forecasts through `metrics.scores_by_bucket` - the
-    same function the notebooks use - rather than transcribed, so it cannot drift from them.
+    Recomputed from the four saved validation forecasts through `metrics.scores_by_bucket`, the same
+    function the notebooks use, so it cannot drift from them.
     """
     from .. import recovery
     from .features import censoring_bucket
@@ -188,7 +182,7 @@ def fig3_per_band(daily: pd.DataFrame = None, save: bool = True):
         sc = {t: scores_by_bucket(pd.read_parquet(config.forecast_parquet("validation", t, fam)),
                                   band) for t in ("raw", "recovered")}
         # % change in WAPE going from raw to recovered, band by band (negative = recovered is better);
-        # drop the pooled "ALL" row, since the whole point of this figure is reading it per band
+        # drop the pooled row: this figure exists to be read per band
         change[fam] = ((sc["recovered"]["WAPE"] / sc["raw"]["WAPE"] - 1) * 100).drop("ALL")
 
     bands = list(change["tft"].index)
@@ -224,9 +218,8 @@ def fig3_per_band(daily: pd.DataFrame = None, save: bool = True):
 # ---------------------------------------------------------------- 3b. calibration
 def fig_calibration(save: bool = True):
     """Coverage before vs. after conformal correction, both bands, validation and test. Reads
-    `conformal_results_tft_recovered_wide{80,95}.json` - the tft/recovered arm carries both
-    periods since a save-overwrite bug was fixed (a later test-week run used to erase an
-    earlier validation record for the same arm; `conformal.run` now merges instead)."""
+    `conformal_results_tft_recovered_wide{80,95}.json`, where `conformal.run` merges both periods
+    into one file per arm."""
     import json
     rows = []
     # one row per (band, window) combination - 2 bands x 2 windows = 4 rows, each holding the
@@ -272,9 +265,7 @@ def fig_waste_comparison(save: bool = True):
     windows (validation, test) and both model families, so a bar-height difference here is a
     waste difference at IDENTICAL availability, never a side effect of one arm ordering more.
 
-    This is the image `poster/poster.html` Card 4 embeds. Supersedes the old
-    `fig4_equal_service`, which read a `waste_at_equal_service.csv` no longer written since
-    notebook 04 was restructured around `conclusion_*.csv` outputs.
+    This is the image `poster/poster.html` Card 4 embeds.
     """
     df = pd.read_csv(config.REPORTS_DIR / "conclusion_raw_vs_recovered.csv")
     windows = list(df["window"].unique())
@@ -293,8 +284,8 @@ def fig_waste_comparison(save: bool = True):
             _bar_labels(ax, b1, "{:.1f}%", dy=1.0)
             _bar_labels(ax, b2, "{:.1f}%", dy=1.0)
 
-            # The saving is written ABOVE the pair, not as an arrow between bar tops - the arrow
-            # crossed the value labels and made three numbers fight for the same 2 cm.
+            # Written above the pair, not as an arrow between bar tops, which would cross the value
+            # labels and put three numbers in the same 2 cm.
             top = sub[["raw waste %", "recovered waste %"]].to_numpy().max() * 1.42
             for xi, r in sub.iterrows():
                 y0 = max(r["raw waste %"], r["recovered waste %"]) + top * 0.135

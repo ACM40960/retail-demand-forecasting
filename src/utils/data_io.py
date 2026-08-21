@@ -84,10 +84,10 @@ def build_subset(n_stores: int = 30, random_state: int = config.SUBSET_SEED) -> 
     representative and no scope restriction has to be declared - and each store keeps a full
     assortment, which the ordering stage needs to recommend a realistic basket.
 
-    The draw is NESTED in `n_stores`: at a fixed seed, 30 stores are the first 30 of the 100, so
-    growing the subset adds stores without swapping the existing ones. That is what makes "the
-    estimate stopped moving as the sample grew" a statement about scale rather than about which
-    stores happened to be drawn - subset choice moves WAPE by ~6%, more than most model choices.
+    The draw is nested in `n_stores`: at a fixed seed, 30 stores are the first 30 of the 100, so
+    growing the subset adds stores without swapping the existing ones. Without that, "the estimate
+    stopped moving as the sample grew" would be a statement about which stores were drawn, and subset
+    choice moves WAPE by ~6%, more than most model choices.
     """
     from datasets import load_dataset
     ds = load_dataset(config.HF_DATASET)   # cached locally after the first pull
@@ -95,9 +95,9 @@ def build_subset(n_stores: int = 30, random_state: int = config.SUBSET_SEED) -> 
 
     daily_train, daily_eval = to_daily(train_raw), to_daily(eval_raw)
 
-    # one fixed shuffle, take the first n - NOT `choice(all_stores, n)`, which redraws from scratch
-    # for each n and would share only 2 of 30 stores between a 30- and a 100-store subset. A
-    # permutation prefix is still a uniform sample, so nesting costs nothing in representativeness.
+    # One fixed shuffle, take the first n. `choice(all_stores, n)` redraws per n and would share
+    # only 2 of 30 stores between a 30- and a 100-store subset. A permutation prefix is still a
+    # uniform sample, so nesting costs nothing in representativeness.
     all_stores = np.sort(daily_train["store_id"].unique())
     picked = np.random.default_rng(random_state).permutation(all_stores)[:n_stores]
     stores = sorted(int(s) for s in picked)
@@ -106,8 +106,7 @@ def build_subset(n_stores: int = 30, random_state: int = config.SUBSET_SEED) -> 
     sub_eval = daily_eval[daily_eval["store_id"].isin(stores)].copy()
     categories = sorted(int(c) for c in sub_train["first_category_id"].unique())
 
-    # only the rows we keep: the checks are per-row, and must run on the RAW frames because
-    # `to_daily` drops the hourly vectors they read
+    # kept rows only, and on the raw frames: `to_daily` drops the hourly vectors these checks read
     for label, raw in [("train", train_raw), ("eval", eval_raw)]:
         print(f"schema facts verified ({label} subset):",
               validate_schema(raw[raw["store_id"].isin(stores)]))
@@ -169,8 +168,8 @@ def load(kind: str) -> pd.DataFrame:
     """Load a train/eval parquet pair ("daily" | "hourly" | "recovered") into one frame with a
     `split` column ("train"/"eval") and parsed dates."""
     train_path, eval_path = _PAIRS[kind]
-    # relative to the repo root: these lines land in committed notebooks, and an absolute
-    # user-home path is both noise and a detail of whose machine happened to run it
+    # relative to the repo root: these lines land in committed notebooks, where an absolute
+    # user-home path would leak whose machine ran it
     print(f"loading {kind} subset from {train_path.relative_to(config.ROOT).parent.as_posix()}")
     train = pd.read_parquet(train_path).assign(split="train")
     eval_ = pd.read_parquet(eval_path).assign(split="eval")

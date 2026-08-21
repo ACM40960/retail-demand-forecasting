@@ -3,24 +3,22 @@
     q* = c_u / (c_u + c_o)      the newsvendor rule
     order = F^-1(q*)            read off the (corrected) forecast
 
-Scored against DEMAND THAT ACTUALLY OCCURRED. An earlier version drew simulated demand from the same
-forecast it was testing, which made every result an identity: the measured stockout rate came out at
-exactly 1 - q* at every cost ratio, because ordering the q*-th percentile of a distribution you also
-sampled from misses (1 - q*) of the time by construction. That version could not tell one forecaster
-from another, or a good forecast from a random one.
+Scored against demand that actually occurred, never against demand drawn from the forecast under
+test: ordering the q*-th percentile of a distribution you also sampled from misses (1 - q*) of the
+time by construction, so the stockout rate would be an identity and not a measurement.
 
-Demand is unknown on stockout days - that is the problem the project exists for - so no single scoring
-choice is neutral. Both are run and the pair reported as a BOUND:
+Demand is unknown on stockout days, which is the problem the project exists for, so no scoring choice
+is neutral. Both run, and the pair is reported as a bound:
 
     observed    full-shelf days only, demand = recorded sales (true there). ADVERSE to recovery,
                 since those are the quiet days where the recovered model over-orders
     recovered   every day, demand = `recovered_demand`. FAVOURABLE, since the recovered arm is then
                 partly graded against its own training target
 
-A conclusion holding at both ends is robust. One that flips between them is undetermined, and should
+A conclusion that holds at both ends is solid; one that flips between them is undetermined and should
 be reported that way.
 
-Takes a forecast FRAME, so every arm - tft_recovered, tft_raw, xgb_recovered, xgb_raw - runs through
+Takes a forecast frame, so all four arms (tft_recovered, tft_raw, xgb_recovered, xgb_raw) run through
 one function. Defaults to the validation window: the test week opens once, and only by an explicit
 `period="test"`.
 """
@@ -62,7 +60,7 @@ def load_forecast(period: str = "validation", wide: bool = True, family: str = "
     reaching it requires naming it.
 
     `wide=True` merges the two conformal runs - `_wide80` (corrected q10/q90) and `_wide95` (corrected
-    q025/q975) - into one 5-point grid. Both correct the SAME underlying forecast, so their raw
+    q025/q975) into one 5-point grid. Both correct the same underlying forecast, so their raw
     quantiles must agree; asserted, not assumed.
     """
     w80_path = config.conformal_parquet(period, "wide80", family=family, target=target)
@@ -100,17 +98,14 @@ def _tau_breakpoints(df: pd.DataFrame, qcols: dict) -> tuple:
     taus = sorted(qcols)   # e.g. [0.1, 0.5, 0.9] - the x-axis this row's demand curve is built on
     vals = np.column_stack([df[qcols[t]].to_numpy(dtype=float) for t in taus])   # (n_rows, n_taus)
 
-    # extend the curve past the highest saved quantile by continuing the last segment's slope in a
-    # straight line out to tau=1, rather than just repeating the last value - a flat tail would say
-    # "demand never exceeds q90", which the model was never actually asked to claim
+    # Continue the last segment's slope out to tau=1 instead of repeating the top value: a flat tail
+    # would claim demand never exceeds q975, which the model was never asked to say.
     top_gap = vals[:, -1] - vals[:, -2]                     # slope of the last saved segment
     extrapolated_top = vals[:, -1] + top_gap * ((1 - taus[-1]) / (taus[-1] - taus[-2]))
 
-    # stitch together tau=0 (0 units), the saved quantiles, and the extrapolated tau=1 into one row
     vals = np.column_stack([np.zeros(len(df)), vals, np.maximum(extrapolated_top, vals[:, -1])])
-    # force each row non-decreasing left to right and non-negative: conformal correction can rarely
-    # push a corrected quantile past its neighbour ("quantile crossing"), which would otherwise make
-    # the interpolation in order_quantity read backwards
+    # Force each row non-decreasing: conformal correction can push a corrected quantile past its
+    # neighbour ("quantile crossing"), which would make `order_quantity` interpolate backwards.
     vals = np.maximum(np.maximum.accumulate(vals, axis=1), 0.0)
     return np.array([0.0] + taus + [1.0]), vals
 
@@ -121,9 +116,7 @@ def order_quantity(df: pd.DataFrame, q_star: float, qcols: dict = None) -> np.nd
     qcols = qcols or CANONICAL_QCOLS
     taus, vals = _tau_breakpoints(df, qcols)   # the shared x-axis, and every row's y-values on it
     q_star = float(np.clip(q_star, 0.0, 1.0))
-    # find which two breakpoints q_star falls between (e.g. between q10 and q50), then linearly
-    # interpolate the order quantity between them - clipped to [1, len-1] so q_star=0 or 1 still
-    # has a real segment either side of it to interpolate within, rather than reading off the edge
+    # clipped to [1, len-1] so q_star at 0 or 1 still has a real segment to interpolate within
     idx = int(np.clip(np.searchsorted(taus, q_star, side="left"), 1, len(taus) - 1))
     t0, t1 = taus[idx - 1], taus[idx]
     frac = 0.0 if t1 == t0 else (q_star - t0) / (t1 - t0)   # 0 at t0, 1 at t1, in between elsewhere
@@ -133,7 +126,7 @@ def order_quantity(df: pd.DataFrame, q_star: float, qcols: dict = None) -> np.nd
 # --------------------------------------------------------------- the naive competitor
 def naive_orders(df: pd.DataFrame, train_recovered: pd.DataFrame = None) -> np.ndarray:
     """The status-quo ordering rule: 'order what sold the same day last week' - raw `sale_amount`
-    seven days back, from the RAW history a store actually has. No fill-in and no calibration,
+    seven days back, from the raw history a store actually has. No fill-in and no calibration,
     which is the entire point of the comparison.
 
     Exact for every window this is scored on, not approximate: validation and test both sit at
@@ -261,10 +254,9 @@ def run(forecast_df: pd.DataFrame = None, qcols: dict = None, period: str = "val
         per_day[f"model_{col}"] = model[col].to_numpy()
         per_day[f"naive_{col}"] = naive[col].to_numpy()
 
-    # `cost_vs_naive_pct` belongs next to `waste_vs_naive_pct`, not below it: read alone, waste is
-    # actively misleading here. The naive rule wastes little because it under-orders and stocks out
-    # ~42% of the time, so ANY policy that keeps shelves full loses on waste while winning on cost.
-    # Cost is the only column that prices both mistakes on the terms the cost ratio declares.
+    # Waste read on its own is misleading here: the naive rule wastes little because it under-orders
+    # and stocks out ~42% of the time, so any policy that keeps shelves full loses on waste while
+    # winning on cost. Cost prices both mistakes on the declared ratio, so the two sit side by side.
     kpi = dict(period=period, regime=regime, n_scored=int(mask.sum()),
                headline=dict(c_u=c_u, c_o=c_o, q_star=round(q_star, 4),
                              waste_vs_naive_pct=round(float(
@@ -276,9 +268,8 @@ def run(forecast_df: pd.DataFrame = None, qcols: dict = None, period: str = "val
                                  100 * (1 - model.shortfall.sum() / demand.sum())), 2)))
 
     if save:
-        # Per-product-day rows are DATA (39K x 20), so parquet beside the forecasts; the sweep is a
-        # summary table a person reads, so CSV in reports/. As a CSV the per-day file was 7.8 MB -
-        # by itself more than the whole reports/ directory it was sitting in.
+        # Per-product-day rows are data (39K x 20), so parquet beside the forecasts, where as a CSV
+        # they run 7.8 MB. The sweep is a summary table a person reads, so CSV in reports/.
         config.ORDER_SIMULATION.parent.mkdir(parents=True, exist_ok=True)
         config.REPORTS_DIR.mkdir(parents=True, exist_ok=True)
         per_day.to_parquet(config.ORDER_SIMULATION, index=False)
@@ -297,31 +288,29 @@ def run(forecast_df: pd.DataFrame = None, qcols: dict = None, period: str = "val
 
 def at_demand_met(frames: dict, target_demand_met: float = 0.95, regime: str = "observed",
                   verbose: bool = True) -> pd.DataFrame:
-    """Every arm held to meeting the SAME share of demand - what does each one waste to get there?
+    """Every arm held to the same share of demand met: what does each one waste to get there?
 
-    `run`'s headline compares arms at one fixed cost ratio, where an arm that simply orders MORE
+    `run`'s headline compares arms at one fixed cost ratio, where an arm that simply orders more
     stocks out less and wastes more - so it can't tell "forecasts better" from "orders harder".
     Fixing demand-met removes that: same availability, so waste is what the forecast bought.
 
     Each arm's own order percentile is solved for and reported too - a lower one for the same
     demand-met share means the forecast is better centred and needs less over-ordering to get there.
     """
-    grid = np.arange(0.50, 0.996, 0.005)   # every order percentile from the 50th to the 99.5th
+    grid = np.arange(0.50, 0.996, 0.005)
     rows = []
     for name, (df, qcols) in frames.items():
         demand, mask = realised_demand(df, regime)
-        # for THIS arm, order at every percentile in the grid and record what demand-met, waste and
-        # stockouts each one produces - each arm gets its own curve, since raw and recovered need
-        # different percentiles to reach the same real-world availability (see the docstring)
+        # Each arm gets its own curve: raw and recovered need different percentiles to reach the
+        # same availability.
         met, waste, stockout = [], [], []
         for q in grid:
             sim = simulate(order_quantity(df, q, qcols)[mask], demand)
             met.append(1 - sim.shortfall.sum() / demand.sum())
             waste.append(100 * sim.waste.sum() / demand.sum())
             stockout.append(100 * sim.stockout.mean())
-        # np.interp reads the grid "backwards": given a target demand-met value, find the percentile
-        # that would have produced it, by interpolating along the (grid, met) curve just built above.
-        # Then re-use that same interpolation position to read off the matching waste and stockout.
+        # Read the curve backwards: interpolate along (met, grid) for the percentile that hits the
+        # target, then read waste and stockouts at that same position.
         rows.append({"arm": name,
                      "order_percentile": round(float(np.interp(target_demand_met, met, grid)), 3),
                      "waste_pct": round(float(np.interp(target_demand_met, met, waste)), 1),

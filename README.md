@@ -34,6 +34,13 @@ This is *censored demand*, and the dataset is unusually well suited to attacking
 **which hours** each shelf was empty, so a stockout is distinguishable from a genuine no-sale at hour
 resolution. That annotation is what makes recovery possible at all.
 
+![Recorded sales against recovered demand for one store-product, with stockout days shaded](outputs/plots/recovery_bias_and_example.png)
+
+*One real series. The red line is what the till recorded; the blue line is what the recovery layer
+estimates was wanted. Shaded days are days the shelf emptied at some point, and the gap between the
+lines on those days is demand that was never observed. The vertical axis is normalised, per
+section 4.*
+
 ## 2. Objectives
 
 | # | Objective | How it is judged |
@@ -42,7 +49,7 @@ resolution. That annotation is what makes recovery possible at all.
 | 2 | Recover the demand censoring hid, and validate it on data that could have falsified it | WAPE on held-out full-shelf days; must beat a no-model control |
 | 3 | Show recovery changes the forecast where it should | raw-vs-recovered twins, split by how often a series sells out, **replicated across two model families** |
 | 4 | Forecast as a **range**, not a point | pinball / CRPS vs the best baseline (TFT and gradient-boosted trees, ~4% apart) |
-| 5 | Make the range honest | 80% band contains truth 80% of the time, with a clustered confidence interval. Coverage improves but still misses by 2–3 points (**a reported finding, not a fix**), §6 |
+| 5 | Make the range honest | 80% band contains truth 80% of the time, with a clustered confidence interval. Coverage improves but still misses by up to 2.5 points (**a reported finding, not a fix**), §6 |
 | 6 | Convert the range into an order that bins less food | cost, waste and demand met vs a naive order, across a cost sweep: cheaper than the naive rule at every cost ratio tested, and less waste at matched demand met, §6 |
 | 7 | Score once on the sealed test week | all of the above, opened once: cheaper than the naive rule at the headline ratio for all four arms, by a smaller margin than validation suggested; two of three hand-picked operating points reverse on it, §6 |
 
@@ -83,8 +90,7 @@ drift from the data it describes.
 
 ## 4. What counts as ground truth here, and what does not
 
-This is the most important section in the README. Nearly every limitation downstream traces back to
-a row in this table.
+Nearly every limitation downstream traces back to a row in this table.
 
 ### Observed and verifiable
 
@@ -134,6 +140,12 @@ a row in this table.
 - **The recovery test is a worst case.** Held-out days are blanked across all 16 active hours, which
   is harsher than roughly 87% of real censored days. The reported error is therefore an upper bound;
   the typical-day figure is unmeasured. The bound errs against the model, not for it.
+
+![Distribution of the hour a stockout day first goes empty, with 87.4% never restocking before close](outputs/plots/stockout_timing.png)
+
+*Why blanking all 16 hours is a worst case, and why it is not an absurd one: 13.4% of stockout days
+are already empty at opening, and 87.4% never see a restock before closing. A day blanked end to end
+is harsher than almost all of them, so the recovery error is an upper bound.*
 
 ## 5. Architecture
 
@@ -235,14 +247,12 @@ runs ~11% high, which the ordering stage has to earn back.
 | XGBoost on recovered demand | 0.3417 | 0.1116 | 0.1330 |
 | `xgboost_quantile` baseline *(untuned)* | 0.3423 | 0.1121 | n/a |
 
-The TFT wins by **0.0042 on pinball, about 3.9%**. That is a real margin, not the under-1% figure
-reported here previously (0.1103 vs 0.1113): those numbers were read off a forecast the TFT has
-since been re-run to produce, and the prose was never updated to match. The comparison is still set
-up in the TFT's favour: it early-stops on the window it is then scored on, while the tree
-early-stops on held-back *training* days, so the gap under an equally strict comparison is
-probably smaller than 3.9%, but "the two are indistinguishable" is no longer the right summary.
-The tree still reproduces exactly on a CPU, which is what lets anyone re-run the recovery result
-without a GPU, and it stays within about 4% of the more expensive model.
+The TFT wins by **0.0042 on pinball, about 3.9%**. The comparison is set up in its favour: it
+early-stops on the window it is then scored on, while the tree early-stops on held-back *training*
+days, so under an equally strict comparison the gap is probably smaller than 3.9%. Read it as "the
+TFT is somewhat better", not "clearly better". The tree reproduces exactly on a CPU, which is what
+lets anyone re-run the recovery result without a GPU, and it stays within about 4% of the more
+expensive model.
 
 **Does recovery help the forecast?** Pooled, no, and that is a property of the metric, not of the
 layer. Recovery is a no-op on full-shelf days (largest difference: 3.6e-15) and those are the only
@@ -300,7 +310,14 @@ not lost to a stockout.*
 
 Ordering from recovered demand cuts stockouts by ~5 percentage points against the raw arm, in both
 families and under both demand regimes: **the sign never flips**. Cost beats the naive rule at all
-nine cost ratios, by 21–73%.
+nine cost ratios, by 20–73%.
+
+![Cost saving against the naive rule across nine cost ratios, on validation and the test week](outputs/plots/cost_sweep.png)
+
+*The whole cost sweep, not one ratio. The line stays above zero at every assumption tested on both
+windows, so "cheaper than ordering what sold last week" does not depend on picking a cost ratio. The
+dip near 1x is where waste and stockouts cost the same, which is the hardest case for any policy that
+leans one way.*
 
 **Does it hold on the sealed test week?** Same four arms, same headline ratio, scored once:
 
@@ -321,9 +338,20 @@ XGBoost** on the test week, against −2.6 and −2.1 points on validation. Reco
 the weeks used to pick a model, and earns it back on the week nothing was tuned against. That is the
 result the project exists to produce, and validation alone would not have shown it.
 
+![Cost saving against the naive rule for all four arms on the sealed test week](outputs/plots/naive_comparison_all_arms.png)
+
+*The same test-week column as the table above. Both raw arms sit near the naive rule's own cost and
+both recovered arms stay well clear of it, which is the +18.8 and +12.6 point gap in bar form.*
+
 The 34.7%/28.0% headline figures are each an average over a handful of calendar days (14 validation,
 7 test), not independent rows; every product sharing a date moves together. A day-block bootstrap
 puts the true saving at roughly **30–39%** on validation and **25–31%** on the test week.
+
+![Waste for raw-trained against recovered-trained models, at 95% demand met, on validation and the test week](outputs/plots/waste_comparison.png)
+
+*Every arm held to meeting the same 95% of demand, so waste is what the forecast bought and not a
+side effect of one arm ordering more. Recovery is worth 2.6 and 5.3 points on validation, and 20.8
+and 20.1 points on the sealed test week.*
 
 **Choosing an operating point, and does it survive the test week?** `c_u/c_o = 4` is one assumption
 among nine tested. Three named points on the recovered-TFT forecast, *waste-focused* (q0.46),
@@ -336,12 +364,16 @@ beats the naive rule on stockout days in **both** windows and **both** model fam
 far more waste (40% vs. naive's 19%). All three still beat the naive rule on cost in both windows;
 the reversal is about which failure mode a store is exposed to, not about money.
 
-Every number above is written by the code into [outputs/](outputs/); the CSVs are the evidence, not
-a transcription of it, and every figure in this section was re-verified directly against the saved
-parquets/JSON/CSVs on 2026-08-17 by re-running the notebook that produces them, rather than copied
-from an earlier draft. One structural gap remains: `baseline_scorecard.csv` has no pinball for two of
-its five rows (`seasonal_naive` and `sarima` are point forecasts, not quantile ones, so pinball does
-not apply to them); that is expected, not stale.
+![One store's test week: recorded sales as bars, the naive order and the recommended order as lines](outputs/plots/store_week_example.png)
+
+*What the pipeline produces for one store, summed across its products over the sealed test week. The
+store is the closest-to-median performer on stockout rate, not a best case, and n=1 makes this an
+illustration of the aggregate result above rather than evidence for it.*
+
+Every number above is written by the code into [outputs/](outputs/) and read back from those saved
+parquets, JSON and CSVs rather than transcribed, and every chart in this section is a PNG the same
+code wrote. One gap is structural: `baseline_scorecard.csv` has no pinball for two of its five rows, because
+`seasonal_naive` and `sarima` are point forecasts and pinball does not apply to them.
 
 ## 7. Limitations
 
